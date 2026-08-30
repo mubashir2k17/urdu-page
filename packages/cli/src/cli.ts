@@ -59,7 +59,7 @@ function parseArgs(argv: string[]): Args {
 function loadFont(): NodeFallbackFont {
   return new NodeFallbackFont(async () => {
     const { readFileSync } = await import("node:fs");
-    const fontPath = resolve(process.cwd(), "fonts/NotoSansArabic-Regular.ttf");
+    const fontPath = resolve(process.cwd(), "fonts/NotoNastaliqUrdu-Regular.ttf");
     return new Uint8Array(readFileSync(fontPath));
   });
 }

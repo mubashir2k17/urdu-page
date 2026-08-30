@@ -25,7 +25,7 @@ visual-diff tests demonstrate it.
 | Color palette extraction | ⚠️ Approximate | RGB values are best-effort |
 | Document metadata | ⚠️ Approximate | Title/author heuristics |
 | Embedded images / previews | ⚠️ Retained only | Detected and preserved, not decoded/rendered |
-| Arabic shaping / joining | ⚠️ Partial | fontkit joins the Noto Sans fallback; full HarfBuzz/Nastaliq parity is not implemented |
+| Arabic shaping / joining | ✅ Working (single font) | Portable HarfBuzz/WASM shapes Noto Nastaliq at book scale; the PDF backend emits its glyph ids and positions directly |
 | Font-provider selection | ⚠️ Partial | Exact decoded document-font matches and provider fallback work; per-run style/font ids are not decoded |
 | Correct bidi ordering | ⚠️ Partial | Logical RTL works for current fixtures; full mixed-script bidi is not implemented |
 | V1 source page setup | ✅ Working | Exact width, height, and margins decoded from verified fixed header fields |
@@ -34,9 +34,9 @@ visual-diff tests demonstrate it.
 | Frames and columns | ❌ Not implemented | Binary coordinates and column settings remain unknown |
 | Tables, borders, rules | ❌ Not implemented | Phase 2 |
 | Footnotes, indexes | ❌ Not implemented | Phase 2 |
-| Searchable PDF text | ✅ Working | Text is extractable via `pdftotext`; sampled pages render with measurable ink overlap |
-| Font embedding | ✅ Working | Full embed (subset crashes fontkit on complex Arabic) |
-| Golden visual-diff | ⚠️ Harness working | Four supplied PDF pairs are audited; current sampled ink overlap is 0.8-5.0% |
+| Searchable PDF text | ✅ Working | Logical Unicode is stored as `ActualText`; text is extractable via `pdftotext` |
+| Font embedding | ✅ Working | Identity CID-to-glyph mapping with full embedding; pdf-lib/fontkit does not reshape text |
+| Golden visual-diff | ⚠️ Harness working | Four supplied PDF pairs are audited; current sampled ink overlap is 1.1-8.5% |
 
 ## Reference audit baseline
 
@@ -47,10 +47,10 @@ without editing the harness.
 
 | Reference | Generated/reference pages | First-page size | Sampled ink overlap |
 |---|---:|---:|---:|
-| Font catalogue | 5 / 2 | Match (A4) | 0.8% |
-| A3 sample | 3 / 1 | Intentional mismatch: source A4, reference print media A3 | 0.9% |
-| Book body | 292 / 241 | Match (Letter) | 5.0% |
-| Book table of contents | 15 / 12 | Match (Letter) | 0.8% |
+| Font catalogue | 5 / 2 | Match (A4) | 1.8% |
+| A3 sample | 3 / 1 | Intentional mismatch: source A4, reference print media A3 | 1.1% |
+| Book body | 281 / 241 | Match (Letter) | 8.5% |
+| Book table of contents | 15 / 12 | Match (Letter) | 1.3% |
 
 These figures are a diagnostic baseline, not an accepted quality threshold.
 The audit uses representative pages for the long documents and ignores pairs of
@@ -58,9 +58,9 @@ pages that are both blank when averaging visual overlap.
 
 ## Known limitations (milestone 1)
 
-- **No faithful Nastaliq backend**: the Noto Sans fallback is joined and
-  searchable, but does not reproduce the reference calligraphy. Official Noto
-  Nastaliq builds currently crash or exhaust memory in fontkit at book scale.
+- **Single-font shaping only**: the PDF backend now embeds positioned HarfBuzz
+  glyphs from the vendored Noto Nastaliq Urdu font, but per-run font fallback
+  and source-font matching are not implemented yet.
 - **Layout geometry incomplete**: v1 source page size and margins are decoded
   and applied, but frame/column coordinates remain unknown. Fixed 12-point type,
   1.6 line height, and paragraph spacing still cause pagination differences.

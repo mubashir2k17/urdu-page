@@ -12,7 +12,7 @@ import type { ReferenceCase } from "./reference-manifest.js";
 
 const projectRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const defaultFallbackFont = new NodeFallbackFont(async () =>
-  new Uint8Array(readFileSync(join(projectRoot, "fonts/NotoSansArabic-Regular.ttf"))),
+  new Uint8Array(readFileSync(join(projectRoot, "fonts/NotoNastaliqUrdu-Regular.ttf"))),
 );
 
 export interface PdfSummary {

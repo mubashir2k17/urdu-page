@@ -1,6 +1,6 @@
 # ADR-007: Font-provider selection and shaping boundary
 
-- **Status**: Accepted
+- **Status**: Superseded in part by ADR-008 and ADR-009; provider selection remains accepted
 - **Date**: 2026-08-31
 - **Supersedes**: ADR-003
 

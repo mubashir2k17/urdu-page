@@ -3,11 +3,12 @@
 **Date:** 2026-08-31  
 **Repo:** `/Users/mubashirsmacbook/projects/inpage-viewer`  
 **Session focus:** v1 page setup, margin-aware layout, exact font measurement,
-reference-harness coverage, and functional font-provider selection.
+reference-harness coverage, functional font-provider selection, and portable
+HarfBuzz shaping with direct searchable PDF glyph emission.
 
 ## State
 
-- `npm test`: **49/49 passing** across 7 files.
+- `npm test`: **53/53 passing** across 8 files.
 - `npm run typecheck`: clean.
 - `npm run audit:references`: completes and writes
   `tmp/pdfs/reference-audit/report.json`.
@@ -19,8 +20,8 @@ reference-harness coverage, and functional font-provider selection.
   aliases pull sibling `src` files outside each package's configured `rootDir`.
   This is a pre-existing monorepo packaging problem, now also affecting the new
   layout workspace; root `npm run typecheck` remains clean.
-- Git is initialized on the `main` branch; this handoff is included in the
-  initial repository snapshot.
+- Git is initialized on the `main` branch. The disposable interface prototype
+  remains isolated on `prototype/shaped-run-interface`.
 
 ## Completed
 
@@ -61,8 +62,8 @@ renderer now uses decoded source width/height and margins.
   interface returns page dimensions and a validated content rectangle.
 - The renderer flows within decoded top/right/bottom/width limits instead of a
   fixed 50-point inset.
-- `PdfBackend.measureText()` uses the embedded font's exact widths for wrapping
-  and right alignment; measurements are cached for the render.
+- The renderer shapes candidate lines once and uses the same `ShapedRun` for
+  wrapping, right alignment, and PDF emission.
 - `RenderPdfResult.pageCount` now reports every emitted overflow page rather
   than only the source page groups.
 - Public PDF tests inspect emitted text matrices for the verified 54-point top
@@ -85,14 +86,14 @@ and supersedes ADR-004.
 
 | Reference | Generated/reference pages | First-page size | Sampled ink overlap |
 |---|---:|---:|---:|
-| Font catalogue | 5 / 2 | Match (A4) | 0.8% |
-| A3 sample | 3 / 1 | Intentional mismatch: source A4, PDF media A3 | 0.9% |
-| Book body | 292 / 241 | Match (Letter) | 5.0% |
-| Book table of contents | 15 / 12 | Match (Letter) | 0.8% |
+| Font catalogue | 5 / 2 | Match (A4) | 1.8% |
+| A3 sample | 3 / 1 | Intentional mismatch: source A4, PDF media A3 | 1.1% |
+| Book body | 281 / 241 | Match (Letter) | 8.5% |
+| Book table of contents | 15 / 12 | Match (Letter) | 1.3% |
 
 Source dimensions and margins are now applied for the verified v1 family. The
-book's page-count error narrows slightly (184 vs 241 before margin layout; 292
-vs 241 now) while overlap rises from 4.3% to 5.0%. Remaining pagination error is
+book's page-count error narrows (184 vs 241 before margin layout; 281 vs 241
+now) while overlap rises from 4.3% to 8.5%. Remaining pagination error is
 dominated by fixed font size, missing decoded styles, frame/column layout, and
 fallback-font width differences.
 
@@ -101,8 +102,8 @@ fallback-font width differences.
 - Registered `FontProvider` instances are now used when no explicit fallback is
   passed. Exact decoded font-name matches win; the newest provider supplies the
   fallback otherwise. Registration returns an unregister function.
-- Raster verification confirms that fontkit performs basic Arabic joining for
-  the current Noto Sans fallback; older claims of fully disconnected glyphs
+- Raster verification confirms that the previous fontkit/Noto Sans path
+  performed basic Arabic joining; older claims of fully disconnected glyphs
   were inaccurate.
 - Official Noto Nastaliq Urdu was tested from the Noto project's
   [regular TTF](https://notofonts.github.io/nastaliq/fonts/NotoNastaliqUrdu/full/ttf/NotoNastaliqUrdu-Regular.ttf).
@@ -112,12 +113,50 @@ fallback-font width differences.
   [static build](https://raw.githubusercontent.com/notofonts/noto-fonts/main/hinted/ttf/NotoNastaliqUrdu/NotoNastaliqUrdu-Regular.ttf),
   version 3.003,
   (`sha256 2fd7b78ce48768b4d7b251457191e0f6db4c85e966a8a10a1f04e196dad35bb6`)
-  crashed on a null GPOS anchor. Neither is safe to vendor as the default with
-  the current backend. The downloaded candidates were removed after testing.
-- HarfBuzz shapes both test strings successfully. A portable HarfBuzz-backed PDF
-  path remains the correct boundary for faithful Nastaliq. The local host has
-  `/opt/homebrew/bin/hb-shape`, but production code must not depend on that
-  machine-specific executable.
+  crashed on a null GPOS anchor. Those failures apply to fontkit shaping, not
+  full font embedding.
+- HarfBuzz shapes both builds successfully. The production shaper uses
+  HarfBuzz/WASM rather than the host's machine-specific `hb-shape` executable.
+- Noto Nastaliq Urdu 4.000 is now vendored as the CLI and reference-harness
+  default. pdf-lib/fontkit embeds it in full but never shapes or measures text.
+
+## Portable HarfBuzz module
+
+- Added `@inpage/text-shaper` with one deep interface:
+  `TextShaper.shape(input): ShapedRun`.
+- `ShapeInput` requires logical text, stable font identity/bytes, explicit
+  direction, language, and script. `ShapedRun` returns positioned glyph ids,
+  clusters, font units, total advance, missing-glyph count, and the unchanged
+  logical text.
+- The HarfBuzz adapter caches fonts by byte-array identity and reuses its buffer.
+- Official Noto Nastaliq Urdu 4.000 shaped the full 347,446-character book under
+  a 512 MB heap cap in 1.25 seconds: 596,570 glyphs, 57 MB peak JS heap, 171 MB
+  peak RSS. This replaces fontkit's previous 4 GB failure for shaping and
+  measurement.
+- The corpus reported 549 missing glyphs. Font fallback/run segmentation must
+  resolve those before emission.
+- The disposable data-shape prototype is preserved on branch
+  `prototype/shaped-run-interface` at commit `13ff0a7`; it is intentionally not
+  present on `main`.
+- ADR-008 records the interface and dependency decision.
+
+## Shaped-glyph PDF emission
+
+- `PdfBackend` now consumes `ShapedRun` instead of logical strings.
+- The renderer shapes each candidate line, caches the run, and uses its total
+  advance for both wrapping and right alignment.
+- The pdf-lib backend embeds the full font as an Identity-H Type0 font, writes
+  HarfBuzz glyph ids directly as CIDs, and applies each advance/offset with an
+  explicit text matrix. It never calls `PDFFont.drawText()`, `encodeText()`, or
+  `widthOfTextAtSize()`.
+- The backend validates that each `ShapedRun.fontId` matches the embedded font,
+  preventing glyph ids from being interpreted against the wrong font program.
+- Each line is wrapped in marked content with UTF-16 `ActualText`, preserving the
+  logical Unicode independently of contextual glyph cmap entries.
+- A one-line Noto Nastaliq prototype rendered connected forms and passed Poppler
+  extraction. The full book now renders to a 5.6 MB, 281-page PDF without the
+  previous 4 GB shaping failure.
+- ADR-009 records the PDF encoding and accessibility decision.
 
 ## Measured typography evidence
 
@@ -144,21 +183,20 @@ needed to assign those fields safely.
 
 ## Next task
 
-Build a portable shaped-glyph boundary before changing typography constants:
+Resolve missing glyphs and mixed-script runs before decoding typography:
 
-1. Define a small renderer-facing `ShapedRun` interface containing glyph ids,
-   advances, offsets, logical text, direction, and font identity. Keep it
-   independent of pdf-lib and any one shaper.
-2. Prototype a JavaScript/WASM HarfBuzz implementation with official Noto
-   Nastaliq Urdu. Validate a short Urdu string, one fixture page, then the full
-   book corpus under an explicit memory limit before adopting dependencies.
-3. Prove how shaped glyphs will be embedded while preserving searchable logical
-   text and ToUnicode mapping. Do not route shaped output back through fontkit in
-   a way that reshapes it or recreates the current failure.
-4. Once the shaping/measurement seam is stable, decode per-run style/font ids
-   and only then assign font size, weight, leading, and paragraph spacing fields
-   where controlled evidence verifies offsets and units.
-5. Re-run page-count, PDF-text, and raster audits after each verified field.
+1. Surface `missingGlyphCount` from line shaping as a renderer diagnostic. Do
+   not silently emit glyph zero.
+2. Segment Urdu, Latin, digits, and unsupported clusters into directional runs;
+   preserve logical cluster boundaries when choosing fallback fonts.
+3. Extend the backend from one validated font identity to multiple embedded font
+   resources so one line can safely contain fallback runs.
+4. Resolve decoded InPage font names through `FontProvider` per run, then select
+   a licensed Latin/symbol fallback for clusters absent from Noto Nastaliq.
+5. Add mixed Urdu/English/digit extraction and raster tests before enabling the
+   fallback path for all fixtures.
+6. Then decode per-run style/font ids and assign font size, weight, leading, and
+   paragraph spacing only where controlled evidence verifies offsets and units.
 
 After shaped runs and styles, investigate frames/columns. Do not infer their
 coordinates from repeated setup-like byte blocks; no source currently verifies
@@ -170,8 +208,13 @@ unknown.
 - `packages/inp-parser/src/page-setup.ts` — fixed v1 page-setup decoder
 - `packages/document-model/src/index.ts` — public `PageSetup` model
 - `packages/layout-engine/src/index.ts` — page/content-box seam
+- `packages/text-shaper/src/index.ts` — `ShapedRun` interface and HarfBuzz/WASM
+  adapter
+- `packages/text-shaper/src/index.test.ts` — glyph, cluster, advance, and missing
+  glyph contract tests
 - `packages/pdf-renderer/src/render.ts` — margin-aware flow and overflow count
-- `packages/pdf-renderer/src/pdflib-backend.ts` — cached embedded-font metrics
+- `packages/pdf-renderer/src/pdflib-backend.ts` — identity-CID glyph emission
+  and logical `ActualText`
 - `packages/pdf-renderer/src/font-provider.ts` — provider priority, exact-name
   resolution, fallback, and scoped unregister
 - `packages/pdf-renderer/src/font-provider.test.ts` — provider selection tests
@@ -182,6 +225,10 @@ unknown.
 - `docs/adr/0006-margin-aware-layout.md` — layout decision and tradeoffs
 - `docs/adr/0007-font-provider-selection-and-shaping-boundary.md` — provider
   selection and safe shaping boundary
+- `docs/adr/0008-portable-text-shaping-module.md` — portable shaped-run module
+  and corpus evidence
+- `docs/adr/0009-shaped-glyph-pdf-emission.md` — raw glyph placement and
+  searchable-text decision
 - `COMPATIBILITY.md` — current feature matrix and audit baseline
 
 ## Cautions
@@ -191,12 +238,14 @@ unknown.
 - Orientation can be derived from dimensions, but no stored orientation flag or
   paper enum has been verified.
 - `PPicts*` images are retained but not decoded/rendered.
-- Basic Arabic joining works for Noto Sans; faithful Nastaliq remains blocked by
-  the current fontkit backend.
+- Portable Noto Nastaliq shaping and PDF emission work for one font; mixed-script
+  segmentation and fallback remain unresolved.
+- Do not send `ShapedRun` back through `PDFFont.drawText()`; that would reshape
+  the logical string and discard the verified glyph positions.
 - Do not change leading to `1.3` merely because that matches the reference page
   count with Noto Sans; reference PDF baselines support approximately `1.57`.
 - `--font` runs execute the candidate in the audit process. An incompatible
   complex font can crash or exhaust that process; isolate new candidates during
   compatibility testing.
-- Font subsetting remains disabled because fontkit crashes in complex Arabic
-  GPOS processing; full embedding is the safe path.
+- Font subsetting remains disabled. Full embedding is safe because fontkit is
+  not asked to shape, measure, or encode the HarfBuzz glyph stream.

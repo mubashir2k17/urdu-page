@@ -12,7 +12,7 @@ const referencesDir = join(here, "../../../tests");
 const fontsDir = join(here, "../../../fonts");
 
 const font = new NodeFallbackFont(async () => {
-  return new Uint8Array(readFileSync(join(fontsDir, "NotoSansArabic-Regular.ttf")));
+  return new Uint8Array(readFileSync(join(fontsDir, "NotoNastaliqUrdu-Regular.ttf")));
 });
 
 describe("pdf-renderer", () => {
@@ -55,7 +55,24 @@ describe("pdf-renderer", () => {
     const result = await renderPdf(doc, { preservePageSize: true, embedFonts: true, searchableText: true }, font);
     const pdf = await PDFDocument.load(result.bytes);
 
-    expect(firstTextPosition(pdf).x).toBeCloseTo(375.948, 3);
+    expect(firstTextPosition(pdf).x).toBeCloseTo(387.2515, 3);
+  });
+
+  it("emits positioned HarfBuzz glyphs with logical ActualText", async () => {
+    const data = new Uint8Array(readFileSync(join(fixturesDir, "Final-1.inp")));
+    const doc = openInPage(data);
+    const result = await renderPdf(
+      doc,
+      { preservePageSize: true, embedFonts: true, searchableText: true },
+      font,
+    );
+    const pdf = await PDFDocument.load(result.bytes);
+    const operators = pageOperators(pdf, 0);
+
+    expect(operators).toContain("/Span << /ActualText <FEFF");
+    expect(operators).toContain("BDC");
+    expect(operators).toContain("EMC");
+    expect(operators.match(/<[0-9a-f]{4}> Tj/g)?.length).toBeGreaterThan(1);
   });
 
   it("reports the number of PDF pages emitted after text overflow", async () => {
@@ -72,7 +89,7 @@ describe("pdf-renderer", () => {
     const doc = openInPage(data);
     const resolvedNames: string[][] = [];
     const fontBytes = new Uint8Array(
-      readFileSync(join(fontsDir, "NotoSansArabic-Regular.ttf")),
+      readFileSync(join(fontsDir, "NotoNastaliqUrdu-Regular.ttf")),
     );
     const unregister = registerFontProvider({
       async resolve(inPageFontNames) {
@@ -99,17 +116,21 @@ describe("pdf-renderer", () => {
 });
 
 function firstTextPosition(pdf: PDFDocument): { x: number; y: number } {
-  const contents = pdf.getPage(0).node.Contents();
+  const operators = pageOperators(pdf, 0);
+  const match = /1 0 0 1 ([\d.-]+) ([\d.-]+) Tm/.exec(operators);
+  if (!match) throw new Error("Generated PDF contains no text matrix");
+  return { x: Number(match[1]), y: Number(match[2]) };
+}
+
+function pageOperators(pdf: PDFDocument, pageIndex: number): string {
+  const contents = pdf.getPage(pageIndex).node.Contents();
   const streams =
     contents instanceof PDFArray
       ? Array.from({ length: contents.size() }, (_, index) => contents.lookup(index, PDFRawStream))
       : contents instanceof PDFRawStream
         ? [contents]
         : [];
-  const operators = streams
+  return streams
     .map((stream) => new TextDecoder().decode(decodePDFRawStream(stream).decode()))
     .join("\n");
-  const match = /1 0 0 1 ([\d.-]+) ([\d.-]+) Tm/.exec(operators);
-  if (!match) throw new Error("Generated PDF contains no text matrix");
-  return { x: Number(match[1]), y: Number(match[2]) };
 }

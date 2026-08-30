@@ -7,8 +7,9 @@ PDF).
 ## Status
 
 Milestone 1 is a **searchable text PDF**. Text extraction and source page-size
-preservation from verified InPage 1.x files work; Nastaliq shaping/joining and
-layout fidelity are **not** implemented yet. See
+preservation from verified InPage 1.x files work. Portable HarfBuzz/WASM
+Nastaliq shaping and positioned-glyph PDF embedding are implemented; font
+fallback, source styles, and full layout fidelity are **not** implemented yet. See
 [COMPATIBILITY.md](./COMPATIBILITY.md) for an honest feature matrix.
 
 ## Install
@@ -17,7 +18,7 @@ layout fidelity are **not** implemented yet. See
 npm install
 ```
 
-Requires Node.js 18+. The default fallback font (Noto Sans Arabic) is vendored
+Requires Node.js 18+. The default fallback font (Noto Nastaliq Urdu) is vendored
 under `fonts/` and shipped under the SIL Open Font License.
 
 ## Usage
@@ -68,7 +69,7 @@ packages/
   diagnostics/    structured diagnostics + confidence levels
   document-model/ normalized intermediate model
   inp-parser/     version detection, v1/v2/v3 decode, metadata, images
-  text-shaper/    (phase 2) shaping abstraction + HarfBuzz
+  text-shaper/    portable HarfBuzz/WASM → positioned glyph runs
   layout-engine/  page/content boxes; future frames/columns
   pdf-renderer/   PdfBackend abstraction + pdf-lib
   converter/      public API

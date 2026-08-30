@@ -17,7 +17,7 @@ packages/inp-parser     version detect → decode (v1/v2/v3) → metadata → im
    ▼
 packages/document-model normalized model (InPageDocument)
    │
-   ├──▶ packages/text-shaper   (phase 2) HarfBuzz shaping
+   ├──▶ packages/text-shaper   HarfBuzz/WASM → positioned ShapedRun
    ├──▶ packages/layout-engine page/content boxes; future frames and columns
    │
    ▼
@@ -36,11 +36,16 @@ packages/cli            inp2pdf
 - **Parser retains byte offsets.** Every stream carries its sector offsets; every
   paragraph carries start/end offsets in the decoded stream.
 - **Render backend is decoupled.** `PdfBackend` is a narrow interface; pdf-lib is
-  one implementation and can be swapped. It supplies exact font measurement as
-  well as drawing, so layout and emission use the same embedded-font metrics.
+  one implementation and can be swapped. It measures and emits the same
+  `ShapedRun`, so line wrapping cannot disagree with positioned glyph output.
 - **Layout precedes emission.** `layout-engine` resolves source geometry into a
   validated page content box. The PDF renderer flows text inside that box but
   does not decode or invent source geometry.
+- **Shaping is independent of PDF emission.** `text-shaper` converts one
+  explicitly segmented logical run into positioned glyph ids and font-unit
+  metrics. It does not import pdf-lib, choose line breaks, or emit documents.
+  The PDF backend maps those glyph ids through an identity CID font and attaches
+  the unchanged logical string as marked-content `ActualText`.
 - **Rasterization is a fallback, never the default.** Milestone 1 emits vector
   text only.
 

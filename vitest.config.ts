@@ -12,6 +12,7 @@ export default defineConfig({
       "@inpage/document-model": resolve(root, "packages/document-model/src/index.ts"),
       "@inpage/inp-parser": resolve(root, "packages/inp-parser/src/index.ts"),
       "@inpage/layout-engine": resolve(root, "packages/layout-engine/src/index.ts"),
+      "@inpage/text-shaper": resolve(root, "packages/text-shaper/src/index.ts"),
       "@inpage/pdf-renderer": resolve(root, "packages/pdf-renderer/src/index.ts"),
       "@inpage/converter": resolve(root, "packages/converter/src/index.ts"),
     },

@@ -14,10 +14,16 @@ incorporated, with provenance.
 
 - **`pdf-lib`** (MIT) — PDF generation backend. Source: https://github.com/Hopding/pdf-lib
 - **`@pdf-lib/fontkit`** (MIT) — font embedding. Source: https://github.com/Hopding/pdf-lib
+- **`harfbuzzjs`** (MIT) — portable HarfBuzz/WASM text shaping used by
+  `@inpage/text-shaper`. Source: https://github.com/harfbuzz/harfbuzzjs
 
 - **Noto Sans Arabic** (SIL Open Font License 1.1) — vendored fallback font in
   `fonts/NotoSansArabic-Regular.ttf`. License: `fonts/OFL.txt`.
   Source: https://github.com/google/fonts/tree/main/ofl/notosansarabic
+
+- **Noto Nastaliq Urdu** (SIL Open Font License 1.1) — vendored default Urdu
+  font in `fonts/NotoNastaliqUrdu-Regular.ttf`. License: `fonts/OFL.txt`.
+  Source: https://github.com/notofonts/nastaliq
 
 - **Microsoft `[MS-CFB]` Compound File Binary File Format** — canonical CFB
   layout used to guide the reader. Open specification.

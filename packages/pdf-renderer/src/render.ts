@@ -1,5 +1,6 @@
 import type { InPageDocument, RenderPdfOptions } from "@inpage/document-model";
 import { createDiagnosticCollector } from "@inpage/diagnostics";
+import { HarfBuzzTextShaper, type ShapedRun } from "@inpage/text-shaper";
 import {
   DEFAULT_PAGE_HEIGHT,
   DEFAULT_PAGE_MARGIN,
@@ -55,7 +56,23 @@ export async function renderPdf(
     );
   }
   const backend = await PdfLibBackend.create();
-  await backend.setFont(fontBytes);
+  const shapeFont = { id: "embedded-fallback", bytes: fontBytes };
+  await backend.setFont(fontBytes, shapeFont.id);
+  const shaper = new HarfBuzzTextShaper();
+  const shapedRuns = new Map<string, ShapedRun>();
+  const shape = (text: string): ShapedRun => {
+    const cached = shapedRuns.get(text);
+    if (cached) return cached;
+    const run = shaper.shape({
+      text,
+      font: shapeFont,
+      direction: "rtl",
+      language: "ur",
+      script: "arab",
+    });
+    shapedRuns.set(text, run);
+    return run;
+  };
 
   const pageBox = resolvePageBox(options.preservePageSize ? document.pageSetup : undefined);
   const pageWidth = pageBox.width;
@@ -85,7 +102,7 @@ export async function renderPdf(
 
       // Wrap text into lines (simple greedy word wrap, RTL-aware for display).
       const lines = wrapText(text, contentWidth, (candidate) =>
-        backend.measureText(candidate, fontSize),
+        backend.measureShapedRun(shape(candidate), fontSize),
       );
 
       for (const line of lines) {
@@ -94,8 +111,9 @@ export async function renderPdf(
           y = pageBox.content.top;
         }
         // Draw RTL: anchor to the right edge.
-        const x = pageBox.content.right - backend.measureText(line, fontSize);
-        backend.drawTextRtl(line, x, y, fontSize);
+        const shapedLine = shape(line);
+        const x = pageBox.content.right - backend.measureShapedRun(shapedLine, fontSize);
+        backend.drawShapedRun(shapedLine, x, y, fontSize);
         y -= lineHeight;
       }
       y -= lineHeight * 0.5; // paragraph spacing
