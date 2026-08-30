@@ -1,0 +1,32 @@
+# Taste
+- Prefers a TypeScript monorepo split into focused packages with layered separation of concerns (parsing, document model, shaping, layout, rendering kept as distinct layers behind abstractions). Confidence: 0.8
+- Establishes strict TypeScript settings, linting, tests, and build tooling first as project foundation. Confidence: 0.8
+- Prefers a rendering abstraction so backends (HarfBuzz/WASM, Canvas, Skia, PDFKit, etc.) can be evaluated without coupling to the parser. Confidence: 0.8
+- Prefers vector text output by default; rasterization only as an explicit fallback, never the default for the whole document. Confidence: 0.8
+- Values preserving original data (byte offsets, unknown records, raw payloads) and emitting diagnostics over silent data loss. Confidence: 0.85
+- Prefers golden-file / visual-diff testing (same-resolution page-image comparison, bounding boxes, pixel diff, SSIM, OCR agreement) with generated HTML reports and numerical scores. Confidence: 0.8
+- Requires fuzz tests and property-based tests, treating untrusted input files as hostile. Confidence: 0.8
+- Does not weaken test tolerances to "fix" failures without documenting why. Confidence: 0.85
+- Runs the full relevant test suite before reporting completion. Confidence: 0.8
+- Prefers honest documentation and does not claim compatibility without golden-file test evidence; keeps an explicit feature/compatibility matrix. Confidence: 0.85
+- Documents every borrowed algorithm and its license (e.g. THIRD_PARTY_NOTICES.md) and treats public reverse-engineering findings as leads to verify against fixtures rather than facts. Confidence: 0.85
+- Does not fabricate binary-format or spec details; documents reasonable decisions and unknowns with confidence levels. Confidence: 0.85
+- Prefers autonomous, end-to-end implementation (audit, implement, test, render, compare, iterate) rather than stopping after a plan or intermediate milestone. Confidence: 0.8
+- Keeps the codebase usable after every milestone. Confidence: 0.7
+- Prefers progress reports that state what works with evidence, what remains unsupported, and which fixture-driven task is next. Confidence: 0.8
+- Prefers permissively licensed (MIT/Apache-2.0) third-party sources over copyleft (GPL) ones for code or data reuse, to keep the project's own licensing clean; copyleft sources are reviewed for leads but not incorporated. Confidence: 0.6
+- Treats third-party code with no LICENSE file as all-rights-reserved and non-copyable, using it only as an unverified lead rather than a source to port code or data tables from. Confidence: 0.3
+- Does not want third-party licensing concerns to block or slow the work; prefers reusing useful code, tables, and converters even when licenses are copyleft or absent, prioritizing progress over license hygiene. Confidence: 0.7
+- Verifies binary-format hypotheses against raw byte/hex dumps and across every available fixture (cross-file framing comparison) before rewriting shared parsing or decoding code, rather than trusting a single sample. Confidence: 0.8
+- Uses disposable scratch scripts for byte-level investigation (e.g. tmp/*.mjs run via node or vite-node) and removes them before finishing the task. Confidence: 0.8
+- When an initial fix degrades measured output (e.g. extraction metrics get worse), treats that as evidence of a deeper structural issue and re-investigates the raw format instead of tuning the original approach. Confidence: 0.7
+- When a known-failure test starts passing, removes the expected-failure marker (e.g. `it.fails`) and strengthens the assertion against real fixture content rather than leaving stale expectations. Confidence: 0.75
+- Prefers empirical, fixture-verified analysis over textual reverse-engineering research: works from byte/hex dumps and cross-fixture measurements, discovering the real format empirically instead of following documented 2-byte framing or markers. Confidence: 0.85
+- Chooses decoding strategies by measuring byte-level discriminators (e.g. `04`-byte density windows, coverage/contiguity fractions) across all fixtures, using the measured split to pick the approach rather than assuming one framing for every file. Confidence: 0.8
+- Abandons a structural hypothesis once measurements show it explains only a small fraction of the data (e.g. record payloads covering <5% of a stream), and searches for the model that covers most of the content. Confidence: 0.75
+- Treats marker bytes in binary preambles (e.g. `FF FF FF FF` end markers, `00 00` skip markers) as unreliable false positives unless verified against the real structure, and drops them rather than letting them terminate parsing. Confidence: 0.75
+- Keeps documentation (format notes, compatibility matrix, limitation notes) in sync with every decoder/model change, including updating audit baselines and removing stale claims that pages render blank. Confidence: 0.8
+- Avoids scope creep into pre-existing, unrelated repo breakage (e.g. an already-broken ESLint config) — notes it is not introduced by the change and leaves it out of scope. Confidence: 0.6
+- Defines repo-local skills under `.agents/skills/` for recurring workflows (e.g. `handoff`) and expects them to be invoked and followed as written — including their guidance to reference existing artifacts instead of duplicating content. Confidence: 0.65
+- Prefers handoff documents to live in the project directory (e.g. project root) rather than the OS temp dir, even when a skill says to use the temp dir — temp locations are ephemeral and out of view; moves them into the repo on request. Confidence: 0.7
+

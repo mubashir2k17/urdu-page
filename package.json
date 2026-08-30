@@ -1,0 +1,34 @@
+{
+  "name": "inpage-viewer",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Convert legacy InPage .inp documents to searchable PDF",
+  "type": "module",
+  "bin": {
+    "inp2pdf": "./bin/inp2pdf.js"
+  },
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "test": "vitest run",
+    "test:references": "vitest run tests/reference-harness.test.ts",
+    "audit:references": "vite-node --config vitest.config.ts tools/audit-references.ts",
+    "test:watch": "vitest",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "lint": "eslint \"packages/*/src/**/*.ts\""
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.0",
+    "@typescript-eslint/eslint-plugin": "^8.18.0",
+    "@typescript-eslint/parser": "^8.18.0",
+    "eslint": "^9.16.0",
+    "typescript": "^5.7.2",
+    "vitest": "^2.1.8"
+  },
+  "dependencies": {
+    "@pdf-lib/fontkit": "^1.1.1",
+    "pdf-lib": "^1.17.1"
+  }
+}

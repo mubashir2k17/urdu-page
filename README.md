@@ -1,0 +1,82 @@
+# inpage-viewer
+
+Convert legacy InPage `.inp` documents to searchable PDF, with a clean-room
+TypeScript implementation and a layered architecture (CFB → parser → model →
+PDF).
+
+## Status
+
+Milestone 1 is a **searchable text PDF**. Text extraction and source page-size
+preservation from verified InPage 1.x files work; Nastaliq shaping/joining and
+layout fidelity are **not** implemented yet. See
+[COMPATIBILITY.md](./COMPATIBILITY.md) for an honest feature matrix.
+
+## Install
+
+```bash
+npm install
+```
+
+Requires Node.js 18+. The default fallback font (Noto Sans Arabic) is vendored
+under `fonts/` and shipped under the SIL Open Font License.
+
+## Usage
+
+### Library
+
+```ts
+import { openInPage, renderPdf, setDefaultFallbackFont } from "@inpage/converter";
+import { NodeFallbackFont } from "@inpage/pdf-renderer";
+
+setDefaultFallbackFont(new NodeFallbackFont(async () => fontBytes));
+
+const document = await openInPage(inputBytes, { strict: false });
+const pdfBytes = await renderPdf(document, {
+  preservePageSize: true,
+  embedFonts: true,
+  searchableText: true,
+});
+```
+
+### CLI
+
+```bash
+inp2pdf input.inp --output output.pdf
+inp2pdf inspect input.inp
+inp2pdf extract input.inp --output output.txt
+inp2pdf render input.inp --pages 1-3 --format png   # phase 2 (not implemented)
+```
+
+## Testing
+
+```bash
+npm test                  # fast unit and integration suite
+npm run test:references   # verify all supplied INP/PDF reference pairs
+npm run audit:references  # metadata, searchable-text, and sampled raster report
+npm run audit:references -- --strict  # fail while any reference mismatch remains
+```
+
+The reference audit writes generated PDFs, page rasters, and `report.json` under
+`tmp/pdfs/reference-audit/`. See [tests/README.md](./tests/README.md) for the
+manifest, comparison rules, and current limitations.
+
+## Architecture
+
+```
+packages/
+  cfb/            safe read-only OLE2/CFB reader
+  diagnostics/    structured diagnostics + confidence levels
+  document-model/ normalized intermediate model
+  inp-parser/     version detection, v1/v2/v3 decode, metadata, images
+  text-shaper/    (phase 2) shaping abstraction + HarfBuzz
+  layout-engine/  page/content boxes; future frames/columns
+  pdf-renderer/   PdfBackend abstraction + pdf-lib
+  converter/      public API
+  cli/            inp2pdf binary
+```
+
+See [ARCHITECTURE.md](./ARCHITECTURE.md) and [FORMAT.md](./FORMAT.md) for details.
+
+## License
+
+MIT. See [THIRD_PARTY_NOTICES.md](./THIRD_PARTY_NOTICES.md).

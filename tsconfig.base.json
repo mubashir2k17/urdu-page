@@ -1,0 +1,32 @@
+{
+  "compilerOptions": {
+    "target": "ES2022",
+    "module": "ESNext",
+    "moduleResolution": "Bundler",
+    "lib": ["ES2022"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "verbatimModuleSyntax": true,
+    "isolatedModules": true,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "declaration": true,
+    "declarationMap": true,
+    "sourceMap": true,
+    "resolveJsonModule": true,
+    "baseUrl": ".",
+    "paths": {
+      "@inpage/cfb": ["packages/cfb/src/index.ts"],
+      "@inpage/diagnostics": ["packages/diagnostics/src/index.ts"],
+      "@inpage/document-model": ["packages/document-model/src/index.ts"],
+      "@inpage/inp-parser": ["packages/inp-parser/src/index.ts"],
+      "@inpage/layout-engine": ["packages/layout-engine/src/index.ts"],
+      "@inpage/pdf-renderer": ["packages/pdf-renderer/src/index.ts"],
+      "@inpage/converter": ["packages/converter/src/index.ts"]
+    }
+  }
+}
