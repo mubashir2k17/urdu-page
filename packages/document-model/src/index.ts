@@ -81,6 +81,35 @@ export interface Page {
   paragraphs: Paragraph[];
 }
 
+export interface Story {
+  /** Stable index in the content stream's story table. */
+  index: number;
+  paragraphs: Paragraph[];
+  startOffset: number;
+  endOffset: number;
+}
+
+export interface PageObjectBounds {
+  /** Coordinates are measured from the source page's top-left corner. */
+  xPoints: number;
+  yPoints: number;
+  widthPoints: number;
+  heightPoints: number;
+}
+
+export interface PageObject {
+  kind: "text" | "image" | "line" | "graphic" | "guide" | "page";
+  id: number;
+  bounds: PageObjectBounds;
+  storyReference?: number;
+  imageName?: string;
+  columnCount?: number;
+  rotationDegrees?: number;
+  hasBorder?: boolean;
+  sourceOffset: number;
+  confidence: Confidence;
+}
+
 export interface PageSetup {
   widthPoints: number;
   heightPoints: number;
@@ -104,6 +133,8 @@ export interface InPageDocument {
   pages: Page[];
   pageSetup?: PageSetup;
   paragraphs: Paragraph[];
+  stories: Story[];
+  pageObjects: PageObject[];
   images: EmbeddedImage[];
   unknownRecords: UnknownRecord[];
   diagnostics: readonly Diagnostic[];
@@ -119,6 +150,13 @@ export interface RenderPdfOptions {
   preservePageSize: boolean;
   embedFonts: boolean;
   searchableText: boolean;
+  /** Render original InPage frames instead of reflowing extracted paragraphs. */
+  preserveLayout?: boolean;
+  /** Optional physical output sheet; source objects remain top-left anchored. */
+  outputPageSize?: {
+    widthPoints: number;
+    heightPoints: number;
+  };
 }
 
 export interface ExtractedText {

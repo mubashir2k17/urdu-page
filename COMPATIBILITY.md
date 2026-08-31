@@ -24,19 +24,19 @@ visual-diff tests demonstrate it.
 | Font name extraction | ✅ Working (medium confidence) | ASCII + UTF-16LE |
 | Color palette extraction | ⚠️ Approximate | RGB values are best-effort |
 | Document metadata | ⚠️ Approximate | Title/author heuristics |
-| Embedded images / previews | ⚠️ Retained only | Detected and preserved, not decoded/rendered |
+| Embedded images / previews | ⚠️ Partial | Hex-suffixed `PPicts*` streams and uncompressed indexed/24/32-bit DIBs are decoded; linked images render in positioned mode |
 | Arabic shaping / joining | ✅ Working (single font) | Portable HarfBuzz/WASM shapes Noto Nastaliq at book scale; the PDF backend emits its glyph ids and positions directly |
 | Font-provider selection | ⚠️ Partial | Exact decoded document-font matches and provider fallback work; per-run style/font ids are not decoded |
-| Correct bidi ordering | ⚠️ Partial | Logical RTL works for current fixtures; full mixed-script bidi is not implemented |
+| Correct bidi ordering | ⚠️ Partial | Positioned layout segments Urdu, Latin, and neutral word runs; a full Unicode bidi implementation is not present |
 | V1 source page setup | ✅ Working | Exact width, height, and margins decoded from verified fixed header fields |
 | Page size preservation | ✅ Working for v1 | Renderer uses decoded source width/height; defaults to A4 when unavailable |
 | Margin-aware page layout | ⚠️ Partial | Decoded margins define the content box; fixed font size/leading remain |
-| Frames and columns | ❌ Not implemented | Binary coordinates and column settings remain unknown |
-| Tables, borders, rules | ❌ Not implemented | Phase 2 |
+| Frames and columns | ⚠️ Partial | Verified v1 object bounds, story links, rotation, and multi-column count render in opt-in positioned mode |
+| Tables, borders, rules | ⚠️ Partial | Frame borders, basic rules, and callout arrows render; cell styling and pattern fills remain |
 | Footnotes, indexes | ❌ Not implemented | Phase 2 |
 | Searchable PDF text | ✅ Working | Logical Unicode is stored as `ActualText`; text is extractable via `pdftotext` |
 | Font embedding | ✅ Working | Identity CID-to-glyph mapping with full embedding; pdf-lib/fontkit does not reshape text |
-| Golden visual-diff | ⚠️ Harness working | Four supplied PDF pairs are audited; current sampled ink overlap is 1.1-8.5% |
+| Golden visual-diff | ⚠️ Harness working | Four supplied PDF pairs are audited; Sample 2 positioned overlap is 14.3% |
 
 ## Reference audit baseline
 
@@ -44,11 +44,12 @@ Run `npm run audit:references`. The normal audit records known mismatches withou
 failing; add `-- --strict` when using it as an acceptance gate.
 Pass `-- --font /absolute/path/to/font.ttf` to compare another licensed font
 without editing the harness.
+Pass `-- --case sample` to run only the matching reference case.
 
 | Reference | Generated/reference pages | First-page size | Sampled ink overlap |
 |---|---:|---:|---:|
 | Font catalogue | 5 / 2 | Match (A4) | 1.8% |
-| A3 sample | 3 / 1 | Intentional mismatch: source A4, reference print media A3 | 1.1% |
+| A3 sample | 1 / 1 | Match (A3 output; source composition remains A4) | 14.3% |
 | Book body | 281 / 241 | Match (Letter) | 8.5% |
 | Book table of contents | 15 / 12 | Match (Letter) | 1.3% |
 
@@ -61,11 +62,12 @@ pages that are both blank when averaging visual overlap.
 - **Single-font shaping only**: the PDF backend now embeds positioned HarfBuzz
   glyphs from the vendored Noto Nastaliq Urdu font, but per-run font fallback
   and source-font matching are not implemented yet.
-- **Layout geometry incomplete**: v1 source page size and margins are decoded
-  and applied, but frame/column coordinates remain unknown. Fixed 12-point type,
-  1.6 line height, and paragraph spacing still cause pagination differences.
+- **Layout styling incomplete**: verified v1 frame geometry, story links,
+  columns, and rotation render in opt-in positioned mode. Per-run font, size,
+  color, cell style, pattern, and outline records are not decoded yet.
 - **Print media is separate from source setup**: `SAMPLE2.INP` is A4 although
   its paired reference PDF was exported on A3 media.
-- **Images/previews** retained in the model, not yet rendered.
+- **Image formats partial**: linked uncompressed DIBs render; compressed DIBs
+  and unlinked preview/artwork streams remain unsupported.
 - **Font subsetting disabled** due to a fontkit GPOS crash on complex Arabic fonts
   (full embedding is used, which is larger but safe).

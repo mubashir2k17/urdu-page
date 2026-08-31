@@ -9,6 +9,7 @@ import { walkRecords, detectRecordFraming, findTextRegions } from "./records.js"
 
 const here = dirname(fileURLToPath(import.meta.url));
 const fixturesDir = join(here, "../../../fixtures/inp");
+const referencesDir = join(here, "../../../tests");
 
 function load(name: string): Uint8Array {
   return new Uint8Array(readFileSync(join(fixturesDir, name)));
@@ -104,6 +105,34 @@ describe("records", () => {
 });
 
 describe("inp-parser", () => {
+  it("preserves Sample 2 stories, positioned frames, and embedded DIBs", () => {
+    const doc = openInPage(
+      new Uint8Array(readFileSync(join(referencesDir, "SAMPLE2.INP"))),
+    );
+
+    expect(doc.stories.length).toBeGreaterThanOrEqual(29);
+    expect(doc.pageObjects.length).toBeGreaterThanOrEqual(30);
+
+    const logo = doc.images.find((image) => image.name === "PPictsc541564");
+    expect(logo).toMatchObject({ format: "dib", width: 192, height: 144 });
+
+    const logoFrame = doc.pageObjects.find(
+      (object) => object.kind === "image" && object.imageName === "PPictsc541564",
+    );
+    expect(logoFrame?.bounds).toEqual({
+      xPoints: 311.209,
+      yPoints: 36,
+      widthPoints: 171,
+      heightPoints: 93,
+    });
+
+    expect(
+      doc.pageObjects.some(
+        (object) => object.kind === "text" && object.columnCount === 3,
+      ),
+    ).toBe(true);
+  });
+
   it("detects InPage v1 for Final-1.inp", () => {
     const report = inspectInPage(load("Final-1.inp"));
     expect(report.version).toBe(1);

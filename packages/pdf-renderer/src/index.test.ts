@@ -16,6 +16,28 @@ const font = new NodeFallbackFont(async () => {
 });
 
 describe("pdf-renderer", () => {
+  it("renders Sample 2 as one positioned A3 page with its embedded logo", async () => {
+    const data = new Uint8Array(readFileSync(join(referencesDir, "SAMPLE2.INP")));
+    const doc = openInPage(data);
+    const result = await renderPdf(
+      doc,
+      {
+        preservePageSize: true,
+        preserveLayout: true,
+        embedFonts: true,
+        searchableText: true,
+        outputPageSize: { widthPoints: 841.92, heightPoints: 1190.52 },
+      },
+      font,
+    );
+    const pdf = await PDFDocument.load(result.bytes);
+    const page = pdf.getPage(0);
+
+    expect(result.pageCount).toBe(1);
+    expect(page.getSize()).toEqual({ width: 841.92, height: 1190.52 });
+    expect(pageOperators(pdf, 0)).toContain(" Do");
+  });
+
   it("renders a searchable PDF from Final-1.inp", async () => {
     const data = new Uint8Array(readFileSync(join(fixturesDir, "Final-1.inp")));
     const doc = openInPage(data);

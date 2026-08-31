@@ -1,4 +1,5 @@
 import type { ShapedRun } from "@inpage/text-shaper";
+import type { EmbeddedImage } from "@inpage/document-model";
 import {
   PDFDocument,
   PDFFont,
@@ -13,9 +14,12 @@ import {
   setFontAndSize,
   setTextMatrix,
   showText,
+  rgb,
+  degrees,
 } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
 import type { PdfBackend } from "./backend.js";
+import { dibToPng } from "./dib-to-png.js";
 
 /**
  * pdf-lib backend. Emits positioned glyph IDs without invoking fontkit layout.
@@ -27,6 +31,7 @@ export class PdfLibBackend implements PdfBackend {
   private fontId: string | null = null;
   private currentPage: PDFPage | null = null;
   private currentFontKey: PDFName | null = null;
+  private readonly images = new Map<string, Awaited<ReturnType<PDFDocument["embedPng"]>>>();
 
   private constructor(doc: PDFDocument) {
     this.doc = doc;
@@ -57,7 +62,7 @@ export class PdfLibBackend implements PdfBackend {
     return run.totalAdvance * (size / run.unitsPerEm);
   }
 
-  drawShapedRun(run: ShapedRun, x: number, y: number, size: number): void {
+  drawShapedRun(run: ShapedRun, x: number, y: number, size: number, rotationDegrees = 0): void {
     if (!this.currentPage) throw new Error("No page added");
     if (!this.font) throw new Error("Font not set");
     if (!this.currentFontKey) throw new Error("Font resource not set");
@@ -68,6 +73,9 @@ export class PdfLibBackend implements PdfBackend {
     }
 
     const scale = size / run.unitsPerEm;
+    const radians = (rotationDegrees * Math.PI) / 180;
+    const cosine = Math.cos(radians);
+    const sine = Math.sin(radians);
     let penX = x;
     let penY = y;
     const actualText = PDFHexString.fromText(run.logicalText);
@@ -87,10 +95,10 @@ export class PdfLibBackend implements PdfBackend {
       }
       this.currentPage.pushOperators(
         setTextMatrix(
-          1,
-          0,
-          0,
-          1,
+          cosine,
+          sine,
+          -sine,
+          cosine,
           penX + glyph.xOffset * scale,
           penY + glyph.yOffset * scale,
         ),
@@ -101,6 +109,54 @@ export class PdfLibBackend implements PdfBackend {
     }
 
     this.currentPage.pushOperators(endText(), endMarkedContent());
+  }
+
+  async drawImage(
+    image: EmbeddedImage,
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    rotationDegrees = 0,
+  ): Promise<void> {
+    if (!this.currentPage) throw new Error("No page added");
+    let embedded = this.images.get(image.name);
+    if (!embedded) {
+      const bytes = image.format === "dib" ? dibToPng(image.bytes) : image.bytes;
+      embedded = image.format === "jpeg"
+        ? await this.doc.embedJpg(bytes)
+        : await this.doc.embedPng(bytes);
+      this.images.set(image.name, embedded);
+    }
+    this.currentPage.drawImage(embedded, {
+      x,
+      y,
+      width,
+      height,
+      rotate: degrees(rotationDegrees),
+    });
+  }
+
+  drawLine(x1: number, y1: number, x2: number, y2: number): void {
+    if (!this.currentPage) throw new Error("No page added");
+    this.currentPage.drawLine({
+      start: { x: x1, y: y1 },
+      end: { x: x2, y: y2 },
+      thickness: 0.6,
+      color: rgb(0, 0, 0),
+    });
+  }
+
+  drawRectangle(x: number, y: number, width: number, height: number): void {
+    if (!this.currentPage) throw new Error("No page added");
+    this.currentPage.drawRectangle({
+      x: Math.min(x, x + width),
+      y: Math.min(y, y + height),
+      width: Math.abs(width),
+      height: Math.abs(height),
+      borderWidth: 0.5,
+      borderColor: rgb(0, 0, 0),
+    });
   }
 
   async save(): Promise<Uint8Array> {

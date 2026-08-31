@@ -10,6 +10,7 @@ export function detectImageFormat(bytes: Uint8Array): EmbeddedImage["format"] {
   if (startsWith(bytes, JPEG_MAGIC)) return "jpeg";
   if (startsWith(bytes, PNG_MAGIC)) return "png";
   if (startsWith(bytes, BMP_MAGIC)) return "dib";
+  if (readDibDimensions(bytes)) return "dib";
   return "unknown";
 }
 
@@ -24,21 +25,47 @@ export function extractImages(
   const images: EmbeddedImage[] = [];
 
   for (const stream of streams) {
-    const isPpicts = /^PPicts\d*$/i.test(stream.name);
+    const isPpicts = /^PPicts[0-9a-f]*$/i.test(stream.name);
     const format = detectImageFormat(stream.bytes);
 
     if (isPpicts || format !== "unknown") {
+      const dimensions = format === "dib" ? readDibDimensions(stream.bytes) : undefined;
       images.push({
         name: stream.name,
         format,
         bytes: stream.bytes,
         offset: stream.offsets[0] ?? 0,
+        ...(dimensions ?? {}),
         confidence: isPpicts ? "medium" : "high",
       });
     }
   }
 
   return images;
+}
+
+function readDibDimensions(bytes: Uint8Array): { width: number; height: number } | undefined {
+  const headerOffset = startsWith(bytes, BMP_MAGIC) ? 14 : 0;
+  if (bytes.length < headerOffset + 40) return undefined;
+  const view = new DataView(bytes.buffer, bytes.byteOffset + headerOffset);
+  const headerSize = view.getUint32(0, true);
+  const width = view.getInt32(4, true);
+  const height = view.getInt32(8, true);
+  const planes = view.getUint16(12, true);
+  const bitsPerPixel = view.getUint16(14, true);
+  const compression = view.getUint32(16, true);
+  if (
+    headerSize < 40 ||
+    headerSize > bytes.length - headerOffset ||
+    width <= 0 ||
+    height === 0 ||
+    planes !== 1 ||
+    ![1, 4, 8, 16, 24, 32].includes(bitsPerPixel) ||
+    compression > 3
+  ) {
+    return undefined;
+  }
+  return { width, height: Math.abs(height) };
 }
 
 function startsWith(data: Uint8Array, magic: number[]): boolean {

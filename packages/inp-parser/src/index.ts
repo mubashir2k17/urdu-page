@@ -20,6 +20,8 @@ import { detectRecordFraming, findTextRegions } from "./records.js";
 import { extractFonts, extractColors, extractMetadata } from "./metadata.js";
 import { extractImages } from "./images.js";
 import { extractPageSetup } from "./page-setup.js";
+import { extractPageObjects } from "./page-objects.js";
+import { decodeStories } from "./stories.js";
 
 export interface OpenInPageOptions extends Partial<DocumentOptions> {
   mode?: "urdu" | "arabic";
@@ -45,6 +47,7 @@ export function inspectInPage(data: Uint8Array): InspectionReport {
   const docInfo = cfb.byPath.get("DocumentInfo");
   const metadata = docInfo ? extractMetadata(docInfo.bytes) : { confidence: "low" as const };
   const images = extractImages(cfb.streams);
+  const pageObjects = contentStream ? extractPageObjects(contentStream.bytes) : [];
 
   if (version === null) {
     diagnostics.warn("parsing", "INP_NO_VERSION", "No InPage100/200/300 content stream found");
@@ -85,6 +88,7 @@ export function openInPage(
   const colors = contentStream ? extractColors(contentStream.bytes) : [];
   const metadata = docInfo ? extractMetadata(docInfo.bytes) : { confidence: "low" as const };
   const images = extractImages(cfb.streams);
+  const pageObjects = contentStream ? extractPageObjects(contentStream.bytes) : [];
 
   if (version === null) {
     diagnostics.error("parsing", "INP_NO_VERSION", "No InPage100/200/300 content stream found");
@@ -96,6 +100,8 @@ export function openInPage(
       colors,
       pages: [],
       paragraphs: [],
+      stories: [],
+      pageObjects,
       images,
       unknownRecords: [],
       diagnostics: diagnostics.diagnostics,
@@ -105,6 +111,7 @@ export function openInPage(
 
   // Decode content stream.
   let paragraphs: InPageDocument["paragraphs"] = [];
+  let stories: InPageDocument["stories"] = [];
   let pageBreakBefore = new Set<number>();
   let decodeDiagnostics: Diagnostic[] = [];
 
@@ -131,6 +138,13 @@ export function openInPage(
           off += r.end - r.start;
         }
         decodeSource = joined;
+        const decodedStories = decodeStories(
+          contentStream!.bytes,
+          regions,
+          options.mode ?? "urdu",
+        );
+        stories = decodedStories.stories;
+        paragraphs = decodedStories.paragraphs;
       } else {
         diagnostics.warn(
           "parsing",
@@ -139,10 +153,12 @@ export function openInPage(
         );
       }
     }
-    const result = decodeLegacy(decodeSource, { mode: options.mode ?? "urdu" });
-    paragraphs = result.paragraphs;
-    pageBreakBefore = result.pageBreakBefore;
-    decodeDiagnostics = result.diagnostics;
+    if (stories.length === 0) {
+      const result = decodeLegacy(decodeSource, { mode: options.mode ?? "urdu" });
+      paragraphs = result.paragraphs;
+      pageBreakBefore = result.pageBreakBefore;
+      decodeDiagnostics = result.diagnostics;
+    }
   }
 
   for (const d of decodeDiagnostics) {
@@ -173,7 +189,7 @@ export function openInPage(
     "DocumentInfo",
   ]);
   const unknownRecords: UnknownRecord[] = cfb.streams
-    .filter((s) => !knownStreamNames.has(s.name) && !/^PPicts\d*$/i.test(s.name))
+    .filter((s) => !knownStreamNames.has(s.name) && !/^PPicts[0-9a-f]*$/i.test(s.name))
     .map((s) => ({
       name: s.name,
       bytes: s.bytes,
@@ -191,6 +207,8 @@ export function openInPage(
     pages,
     ...(pageSetup ? { pageSetup } : {}),
     paragraphs,
+    stories,
+    pageObjects,
     images,
     unknownRecords,
     diagnostics: diagnostics.diagnostics,

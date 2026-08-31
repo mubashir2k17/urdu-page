@@ -2,16 +2,18 @@
 
 **Date:** 2026-08-31  
 **Repo:** `/Users/mubashirsmacbook/projects/inpage-viewer`  
-**Session focus:** v1 page setup, margin-aware layout, exact font measurement,
-reference-harness coverage, functional font-provider selection, and portable
-HarfBuzz shaping with direct searchable PDF glyph emission.
+**Session focus:** v1 source-frame reconstruction for Sample 2: story-table
+preservation, positioned objects, DIB graphics, mixed-direction frame layout,
+and one-page A3 PDF output.
 
 ## State
 
-- `npm test`: **53/53 passing** across 8 files.
+- `npm test`: **55/55 passing** across 8 files.
 - `npm run typecheck`: clean.
 - `npm run audit:references`: completes and writes
   `tmp/pdfs/reference-audit/report.json`.
+- `npm run audit:references -- --case sample`: renders Sample 2 in positioned
+  mode as one A3 page with **14.3%** sampled ink overlap (up from 1.1%).
 - `npm run audit:references -- --font fonts/NotoSansArabic-Regular.ttf`: also
   completes, verifying the injectable-font harness path.
 - `npm run lint`: still fails before linting (exit 2) because ESLint 9 requires
@@ -24,6 +26,25 @@ HarfBuzz shaping with direct searchable PDF glyph emission.
   remains isolated on `prototype/shaped-run-interface`.
 
 ## Completed
+
+### Sample 2 positioned reconstruction
+
+- v1 drawing-object records are now decoded from their self-sized headers.
+  Verified properties `00`–`03` expose top-left x/y/width/height in 1/2000 pt.
+- `InPageDocument` preserves `stories` and `pageObjects` instead of exposing
+  only a flattened paragraph sequence. Text objects include story reference,
+  column count, rotation, bounds, and the limited verified border signal.
+- Hex-suffixed `PPicts*` streams are recognized. Raw uncompressed Windows DIBs
+  expose dimensions and are converted to PNG at the PDF backend boundary.
+- `RenderPdfOptions.preserveLayout` opts into source-frame layout;
+  `outputPageSize` separately selects print/export media while retaining the
+  source top-left coordinate system.
+- The positioned renderer fits text to frame bounds, renders three columns,
+  handles rotated text, segments word runs by direction, draws embedded images,
+  borders, basic rules, and reconstructed annotation arrows.
+- `SAMPLE2.INP` now produces one 841.92×1190.52-point A3 PDF rather than three
+  flowed A4 pages. The exact embedded 2014 logo is visible at its source frame.
+- ADR-010 records the model and rendering boundary.
 
 ### Content extraction and harness
 
@@ -87,7 +108,7 @@ and supersedes ADR-004.
 | Reference | Generated/reference pages | First-page size | Sampled ink overlap |
 |---|---:|---:|---:|
 | Font catalogue | 5 / 2 | Match (A4) | 1.8% |
-| A3 sample | 3 / 1 | Intentional mismatch: source A4, PDF media A3 | 1.1% |
+| A3 sample | 1 / 1 | Match (A3 output; A4 source composition) | 14.3% |
 | Book body | 281 / 241 | Match (Letter) | 8.5% |
 | Book table of contents | 15 / 12 | Match (Letter) | 1.3% |
 
@@ -183,25 +204,20 @@ needed to assign those fields safely.
 
 ## Next task
 
-Resolve missing glyphs and mixed-script runs before decoding typography:
+Decode positioned-frame styling to close the remaining Sample 2 visual gap:
 
-1. Surface `missingGlyphCount` from line shaping as a renderer diagnostic. Do
-   not silently emit glyph zero.
-2. Segment Urdu, Latin, digits, and unsupported clusters into directional runs;
-   preserve logical cluster boundaries when choosing fallback fonts.
-3. Extend the backend from one validated font identity to multiple embedded font
-   resources so one line can safely contain fallback runs.
-4. Resolve decoded InPage font names through `FontProvider` per run, then select
-   a licensed Latin/symbol fallback for clusters absent from Noto Nastaliq.
-5. Add mixed Urdu/English/digit extraction and raster tests before enabling the
-   fallback path for all fixtures.
-6. Then decode per-run style/font ids and assign font size, weight, leading, and
-   paragraph spacing only where controlled evidence verifies offsets and units.
-
-After shaped runs and styles, investigate frames/columns. Do not infer their
-coordinates from repeated setup-like byte blocks; no source currently verifies
-those semantics, and the external MIT-format project leaves page group `0x03`
-unknown.
+1. Decode frame fill/pattern and stroke records for the black feature box,
+   patterned heading band, slanted poem frame, and table header/cell rules.
+2. Decode story/paragraph style links and source point sizes instead of fitting
+   every story heuristically to its frame.
+3. Map decoded InPage face names to licensed substitutes per run and add a
+   Latin/symbol fallback resource; report missing glyphs instead of glyph zero.
+4. Replace word-level mixed-direction placement with cluster-safe Unicode bidi
+   segmentation while preserving `ActualText`.
+5. Decode table/tab stops and cell alignment so numeric and Latin columns match
+   the reference precisely.
+6. Raise the Sample 2 raster acceptance threshold incrementally from the new
+   14.3% baseline without regressing its one-page/A3 structural contract.
 
 ## Key files
 
@@ -217,6 +233,10 @@ unknown.
   and logical `ActualText`
 - `packages/pdf-renderer/src/font-provider.ts` — provider priority, exact-name
   resolution, fallback, and scoped unregister
+- `packages/inp-parser/src/page-objects.ts` — v1 frame geometry and linkage
+- `packages/inp-parser/src/stories.ts` — preserved story-table decoding
+- `packages/pdf-renderer/src/positioned-layout.ts` — source-frame composition
+- `packages/pdf-renderer/src/dib-to-png.ts` — supported raw DIB conversion
 - `packages/pdf-renderer/src/font-provider.test.ts` — provider selection tests
 - `tests/reference-harness.test.ts` — public geometry and conversion coverage
 - `tools/audit-references.ts` — Poppler-backed structural/raster audit
@@ -229,6 +249,8 @@ unknown.
   and corpus evidence
 - `docs/adr/0009-shaped-glyph-pdf-emission.md` — raw glyph placement and
   searchable-text decision
+- `docs/adr/0010-source-frame-pdf-reconstruction.md` — positioned model,
+  print-media boundary, and measured Sample 2 result
 - `COMPATIBILITY.md` — current feature matrix and audit baseline
 
 ## Cautions
@@ -237,7 +259,8 @@ unknown.
 - No v2 or v3 fixture exists; do not claim geometry compatibility for them.
 - Orientation can be derived from dimensions, but no stored orientation flag or
   paper enum has been verified.
-- `PPicts*` images are retained but not decoded/rendered.
+- Only uncompressed indexed, 24-bit, and 32-bit DIBs are decoded. Compressed or
+  unlinked `PPicts*` streams remain unsupported.
 - Portable Noto Nastaliq shaping and PDF emission work for one font; mixed-script
   segmentation and fallback remain unresolved.
 - Do not send `ShapedRun` back through `PDFFont.drawText()`; that would reshape

@@ -16,6 +16,8 @@ export interface ReferenceCase {
   expected: ReferenceExpectation;
   /** One-based pages used by the slower raster comparison. */
   samplePages: readonly number[];
+  /** Exercise source-frame reconstruction rather than paragraph reflow. */
+  preserveLayout?: boolean;
 }
 
 function referenceCase(
@@ -24,6 +26,7 @@ function referenceCase(
   pdfName: string,
   expected: ReferenceExpectation,
   samplePages: readonly number[],
+  preserveLayout = false,
 ): ReferenceCase {
   return {
     name,
@@ -31,6 +34,7 @@ function referenceCase(
     referencePdf: join(testsDirectory, pdfName),
     expected,
     samplePages,
+    ...(preserveLayout ? { preserveLayout } : {}),
   };
 }
 
@@ -48,6 +52,7 @@ export const REFERENCE_CASES: readonly ReferenceCase[] = [
     "SAMPLE2.pdf",
     { pageCount: 1, widthPoints: 841.92, heightPoints: 1190.52 },
     [1],
+    true,
   ),
   referenceCase(
     "book body",

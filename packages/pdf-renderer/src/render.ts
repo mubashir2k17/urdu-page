@@ -10,6 +10,7 @@ import {
 import { PdfLibBackend } from "./pdflib-backend.js";
 import { resolveProvidedFont } from "./font-provider.js";
 import type { PdfBackend } from "./backend.js";
+import { renderPositionedPage } from "./positioned-layout.js";
 
 export const A4_WIDTH = DEFAULT_PAGE_WIDTH;
 export const A4_HEIGHT = DEFAULT_PAGE_HEIGHT;
@@ -60,29 +61,37 @@ export async function renderPdf(
   await backend.setFont(fontBytes, shapeFont.id);
   const shaper = new HarfBuzzTextShaper();
   const shapedRuns = new Map<string, ShapedRun>();
-  const shape = (text: string): ShapedRun => {
-    const cached = shapedRuns.get(text);
+  const shape = (text: string, direction: "ltr" | "rtl" = "rtl"): ShapedRun => {
+    const cacheKey = `${direction}:${text}`;
+    const cached = shapedRuns.get(cacheKey);
     if (cached) return cached;
     const run = shaper.shape({
       text,
       font: shapeFont,
-      direction: "rtl",
-      language: "ur",
-      script: "arab",
+      direction,
+      language: direction === "rtl" ? "ur" : "en",
+      script: direction === "rtl" ? "arab" : "latn",
     });
-    shapedRuns.set(text, run);
+    shapedRuns.set(cacheKey, run);
     return run;
   };
 
   const pageBox = resolvePageBox(options.preservePageSize ? document.pageSetup : undefined);
-  const pageWidth = pageBox.width;
-  const pageHeight = pageBox.height;
+  const pageWidth = options.outputPageSize?.widthPoints ?? pageBox.width;
+  const pageHeight = options.outputPageSize?.heightPoints ?? pageBox.height;
   const contentWidth = pageBox.content.width;
   let emittedPageCount = 0;
   const addPage = (): void => {
     backend.addPage(pageWidth, pageHeight);
     emittedPageCount++;
   };
+
+  if (options.preserveLayout && document.pageObjects.length > 0 && document.stories.length > 0) {
+    addPage();
+    await renderPositionedPage(document, backend, pageHeight, shape);
+    const bytes = await backend.save();
+    return { bytes, pageCount: emittedPageCount };
+  }
 
   // Group paragraphs into pages by the document's page structure.
   const pages = document.pages.length > 0 ? document.pages : [{ index: 0, paragraphs: document.paragraphs }];

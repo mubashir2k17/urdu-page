@@ -76,7 +76,20 @@ export async function renderCurrentPdf(
   const extracted = extractText(document);
   const bytes = await renderPdf(
     document,
-    { preservePageSize: true, embedFonts: true, searchableText: true },
+    {
+      preservePageSize: true,
+      embedFonts: true,
+      searchableText: true,
+      ...(referenceCase.preserveLayout ? { preserveLayout: true } : {}),
+      ...(referenceCase.preserveLayout
+        ? {
+            outputPageSize: {
+              widthPoints: referenceCase.expected.widthPoints,
+              heightPoints: referenceCase.expected.heightPoints,
+            },
+          }
+        : {}),
+    },
     fallbackFont,
   );
 

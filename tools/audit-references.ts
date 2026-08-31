@@ -20,8 +20,11 @@ const fallbackFont = fontPath
   : undefined;
 
 const reports = [];
+const caseFilter = argumentValue("--case")?.toLowerCase();
 
-for (const referenceCase of REFERENCE_CASES) {
+for (const referenceCase of REFERENCE_CASES.filter((candidate) =>
+  caseFilter ? candidate.name.toLowerCase().includes(caseFilter) : true,
+)) {
   const current = await renderCurrentPdf(referenceCase, fallbackFont);
   const audit = await auditReferenceCase(referenceCase, current);
   const slug = basename(referenceCase.input).replace(/\.[^.]+$/, "").replace(/[^a-z0-9]+/gi, "-").toLowerCase();
