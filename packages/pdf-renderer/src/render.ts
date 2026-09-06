@@ -1,6 +1,6 @@
 import type { InPageDocument, RenderPdfOptions } from "@inpage/document-model";
 import { createDiagnosticCollector } from "@inpage/diagnostics";
-import { HarfBuzzTextShaper, type ShapedRun } from "@inpage/text-shaper";
+import { HarfBuzzTextShaper, type ShapedRun, type TextShaper, type ShapeFont } from "@inpage/text-shaper";
 import {
   DEFAULT_PAGE_HEIGHT,
   DEFAULT_PAGE_MARGIN,
@@ -25,6 +25,12 @@ export interface FallbackFont {
   getBytes(): Promise<Uint8Array>;
 }
 
+export interface RenderTypography {
+  shaper: TextShaper;
+  /** Additional fonts referenced by glyph fontId overrides. */
+  fonts: ShapeFont[];
+}
+
 /** A simple built-in fallback font loader (reads from the filesystem in Node). */
 export class NodeFallbackFont implements FallbackFont {
   constructor(private readonly load: () => Promise<Uint8Array>) {}
@@ -37,6 +43,7 @@ export async function renderPdf(
   document: InPageDocument,
   options: RenderPdfOptions,
   fallbackFont?: FallbackFont,
+  typography?: RenderTypography,
 ): Promise<RenderPdfResult> {
   const diagnostics = createDiagnosticCollector();
 
@@ -59,7 +66,11 @@ export async function renderPdf(
   const backend = await PdfLibBackend.create();
   const shapeFont = { id: "embedded-fallback", bytes: fontBytes };
   await backend.setFont(fontBytes, shapeFont.id);
-  const shaper = new HarfBuzzTextShaper();
+  for (const font of typography?.fonts ?? []) {
+    if (font.faceIndex) throw new Error("Additional PDF fonts must be individual faces");
+    await backend.registerFont(font.bytes, font.id);
+  }
+  const shaper = typography?.shaper ?? new HarfBuzzTextShaper();
   const shapedRuns = new Map<string, ShapedRun>();
   const shape = (text: string, direction: "ltr" | "rtl" = "rtl"): ShapedRun => {
     const cacheKey = `${direction}:${text}`;

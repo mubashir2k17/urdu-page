@@ -28,6 +28,8 @@ export interface ShapeInput {
 
 export interface ShapedGlyph {
   id: number;
+  /** Optional font override; metrics remain in the enclosing run's units. */
+  fontId?: string;
   /** Source-text cluster index supplied by HarfBuzz. */
   cluster: number;
   xAdvance: number;
@@ -35,6 +37,11 @@ export interface ShapedGlyph {
   xOffset: number;
   yOffset: number;
 }
+
+export { decodeInPageFontData } from "./inpage-font-data.js";
+export type { InPageLigature } from "./inpage-font-data.js";
+export { LegacyLigatureTextShaper } from "./legacy-ligature-shaper.js";
+export type { LegacyLigatureGlyph } from "./legacy-ligature-shaper.js";
 
 export interface ShapedRun {
   logicalText: string;

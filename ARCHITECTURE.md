@@ -46,6 +46,9 @@ packages/cli            inp2pdf
   metrics. It does not import pdf-lib, choose line breaks, or emit documents.
   The PDF backend maps those glyph ids through an identity CID font and attaches
   the unchanged logical string as marked-content `ActualText`.
+  Experimental local ligature shaping may override the font per glyph;
+  metrics stay in the enclosing run's units, and the backend validates each
+  font identity against its registered resources. See ADR-011.
 - **Rasterization is a fallback, never the default.** Milestone 1 emits vector
   text only.
 

@@ -11,7 +11,8 @@ import {
 } from "@inpage/inp-parser";
 import type { OpenInPageOptions } from "@inpage/inp-parser";
 import { renderPdf as renderPdfImpl } from "@inpage/pdf-renderer";
-import type { FallbackFont } from "@inpage/pdf-renderer";
+import type { FallbackFont, RenderTypography } from "@inpage/pdf-renderer";
+export type { RenderTypography } from "@inpage/pdf-renderer";
 
 export type {
   InPageDocument,
@@ -46,9 +47,10 @@ export async function renderPdf(
   document: InPageDocument,
   options: RenderPdfOptions,
   fallbackFont?: FallbackFont,
+  typography?: RenderTypography,
 ): Promise<Uint8Array> {
   const font = fallbackFont ?? _defaultFallbackFont;
-  const result = await renderPdfImpl(document, options, font);
+  const result = await renderPdfImpl(document, options, font, typography);
   return result.bytes;
 }
 

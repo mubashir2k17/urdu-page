@@ -1,6 +1,6 @@
 # inpage-viewer
 
-Convert legacy InPage `.inp` documents to searchable PDF, with a clean-room
+Convert legacy InPage `.inp` documents to searchable PDF, with an independent
 TypeScript implementation and a layered architecture (CFB → parser → model →
 PDF).
 
@@ -20,6 +20,22 @@ npm install
 
 Requires Node.js 18+. The default fallback font (Noto Nastaliq Urdu) is vendored
 under `fonts/` and shipped under the SIL Open Font License.
+
+### Local InPage fonts (experimental)
+
+```bash
+npm run fonts:import -- "/path/to/Inpage 2018"
+npm run fonts:preview
+npm run audit:references -- --case sample --inpage-fonts fonts/inpage-local
+```
+
+This copies the original fonts and ligature data into ignored local storage,
+then uses verified whole-word Noori glyphs with Unicode fallback for unmatched
+words. The preview is `output/pdf/inpage-font-comparison.pdf`; experimental
+audit output is `tmp/pdfs/inpage-font-audit/`. Noto remains the default: Sample 2
+currently scores 14.1% overlap with original word glyphs versus 14.3% default.
+See [font recovery findings](./docs/research/inpage-font-banks.md) for supported
+data identity, offsets, rendering limits, and reproduction steps.
 
 ## Usage
 

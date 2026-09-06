@@ -5,7 +5,7 @@ import { PDFDocument } from "pdf-lib";
 
 import { extractText, openInPage, renderPdf } from "@inpage/converter";
 import { NodeFallbackFont } from "@inpage/pdf-renderer";
-import type { FallbackFont } from "@inpage/pdf-renderer";
+import type { FallbackFont, RenderTypography } from "@inpage/pdf-renderer";
 import type { InPageVersion } from "@inpage/document-model";
 
 import type { ReferenceCase } from "./reference-manifest.js";
@@ -70,6 +70,7 @@ export async function auditReferenceCase(
 export async function renderCurrentPdf(
   referenceCase: ReferenceCase,
   fallbackFont: FallbackFont = defaultFallbackFont,
+  typography?: RenderTypography,
 ): Promise<CurrentConversion> {
   const input = new Uint8Array(readFileSync(referenceCase.input));
   const document = await openInPage(input, { strict: false });
@@ -91,6 +92,7 @@ export async function renderCurrentPdf(
         : {}),
     },
     fallbackFont,
+    typography,
   );
 
   return {

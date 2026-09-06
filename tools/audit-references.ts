@@ -5,6 +5,7 @@ import { NodeFallbackFont } from "@inpage/pdf-renderer";
 
 import { auditReferenceCase, renderCurrentPdf } from "../tests/reference-harness.js";
 import { REFERENCE_CASES } from "../tests/reference-manifest.js";
+import { loadInPageTypography } from "./inpage-fonts.js";
 
 interface RasterComparison {
   page: number;
@@ -12,7 +13,9 @@ interface RasterComparison {
   inkSimilarity?: number;
 }
 
-const outputDirectory = join(process.cwd(), "tmp", "pdfs", "reference-audit");
+const inPageFonts = argumentValue("--inpage-fonts");
+const typography = inPageFonts ? loadInPageTypography(resolve(inPageFonts)) : undefined;
+const outputDirectory = join(process.cwd(), "tmp", "pdfs", inPageFonts ? "inpage-font-audit" : "reference-audit");
 mkdirSync(outputDirectory, { recursive: true });
 const fontPath = argumentValue("--font");
 const fallbackFont = fontPath
@@ -25,7 +28,7 @@ const caseFilter = argumentValue("--case")?.toLowerCase();
 for (const referenceCase of REFERENCE_CASES.filter((candidate) =>
   caseFilter ? candidate.name.toLowerCase().includes(caseFilter) : true,
 )) {
-  const current = await renderCurrentPdf(referenceCase, fallbackFont);
+  const current = await renderCurrentPdf(referenceCase, fallbackFont, typography);
   const audit = await auditReferenceCase(referenceCase, current);
   const slug = basename(referenceCase.input).replace(/\.[^.]+$/, "").replace(/[^a-z0-9]+/gi, "-").toLowerCase();
   const generatedPdf = join(outputDirectory, `${slug}-current.pdf`);

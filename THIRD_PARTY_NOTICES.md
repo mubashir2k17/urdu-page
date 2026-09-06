@@ -3,6 +3,16 @@
 This project is MIT-licensed. The following third-party works were consulted or
 incorporated, with provenance.
 
+## User-supplied local InPage assets
+
+The 2026-09-07 font importer copies fonts and `INPAGEU.DAT` from a local InPage
+installation into ignored `fonts/inpage-local/`. These original assets are
+separate from the repository's MIT code and Noto/OFL fonts; no license is
+assigned to them by this project. Generated specimens and audits embed local
+font bytes and are also ignored. Static inspection of the supplied executable
+informed the independently written DAT decoder; no executable code is bundled.
+File identities and evidence are recorded in `docs/research/inpage-font-banks.md`.
+
 ## Incorporated (MIT / permissive)
 
 - **`iamahsanmehmood/inpage-format`** (MIT) — primary reverse-engineering spec:

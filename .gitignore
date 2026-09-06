@@ -10,3 +10,5 @@ tmp/
 *.log
 npm-debug.log*
 .commandcode/settings.local.json
+fonts/inpage-local/
+output/pdf/

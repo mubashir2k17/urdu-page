@@ -22,6 +22,30 @@ coordinates in the renderer.
 
 ## Current status
 
+### 2026-09-07 font recovery update
+
+- Statically inspected the user-supplied Windows InPage installation; Wine was
+  unnecessary for this pass. The folder label is not a verified app version.
+- Copied 184 font files and `INPAGEU.DAT` to ignored `fonts/inpage-local/`, with
+  a per-file hash inventory. All 100 `.UTF` files are TrueType fonts.
+- Recovered a 22,574-node ligature tree with 17,989 terminal mappings. The
+  experimental adapter enables 16,145 plain-letter, single-glyph mappings
+  across 88 Noori banks. Unavailable slots and unsupported words use Noto.
+- Added optional glyph font identities, PDF resource switching, and the fourth
+  `RenderTypography` argument to renderer/converter `renderPdf`.
+- `npm run fonts:import -- "/path/to/Inpage 2018"` reproduces local import.
+  `npm run fonts:preview` creates a visually checked comparison specimen.
+- `npm run audit:references -- --case sample --inpage-fonts fonts/inpage-local`
+  uses copied fonts and writes `tmp/pdfs/inpage-font-audit/`. Sample 2 remains
+  one A3 page, with **14.1%** ink overlap versus **14.3%** unchanged default.
+  Keep this opt-in; source size/spacing and multi-component positioning remain
+  unresolved. Original glyph usage alone has not improved whole-page fidelity.
+- Validation: **67/67 tests**, root typecheck; includes two local-asset tests
+  that skip when no installation has been imported.
+- Evidence and next steps: `docs/research/inpage-font-banks.md` and ADR-011.
+
+### Previous rendering baseline
+
 - `npm test`: **55/55 passing** across 8 test files at the last full run.
 - `npm run typecheck`: clean at the last full run.
 - Git is initialized on `main`; the current code milestone is committed at
@@ -99,9 +123,9 @@ it appear that the INP file stores A3 media.
 3. Mixed-direction handling is word-based, not a complete cluster-safe Unicode
    bidi implementation. Tabular Latin text, numbers, punctuation, and Urdu can
    still be ordered or aligned incorrectly.
-4. The PDF backend supports one validated font identity per render. There is no
-   per-run Latin/symbol fallback, and 549 missing glyphs were measured over the
-   book corpus.
+4. The PDF backend now supports explicit per-glyph font identities for the
+   experimental local Noori adapter. General per-run Latin/symbol fallback
+   remains absent; 549 missing glyphs were measured over the default book corpus.
 5. Table/tab-stop structure and cell alignment are not decoded.
 6. Positioned reconstruction is only enabled for Sample 2 in the reference
    manifest. Multi-page frame ownership and text threading remain unverified.

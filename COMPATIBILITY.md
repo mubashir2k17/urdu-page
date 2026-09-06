@@ -27,6 +27,7 @@ visual-diff tests demonstrate it.
 | Embedded images / previews | ⚠️ Partial | Hex-suffixed `PPicts*` streams and uncompressed indexed/24/32-bit DIBs are decoded; linked images render in positioned mode |
 | Arabic shaping / joining | ✅ Working (single font) | Portable HarfBuzz/WASM shapes Noto Nastaliq at book scale; the PDF backend emits its glyph ids and positions directly |
 | Font-provider selection | ⚠️ Partial | Exact decoded document-font matches and provider fallback work; per-run style/font ids are not decoded |
+| Original InPage font banks | ⚠️ Experimental | Local import and 16,145 whole-word glyph mappings across 88 Noori banks; opt-in `--inpage-fonts`, Unicode fallback for unsupported words |
 | Correct bidi ordering | ⚠️ Partial | Positioned layout segments Urdu, Latin, and neutral word runs; a full Unicode bidi implementation is not present |
 | V1 source page setup | ✅ Working | Exact width, height, and margins decoded from verified fixed header fields |
 | Page size preservation | ✅ Working for v1 | Renderer uses decoded source width/height; defaults to A4 when unavailable |
@@ -59,9 +60,12 @@ pages that are both blank when averaging visual overlap.
 
 ## Known limitations (milestone 1)
 
-- **Single-font shaping only**: the PDF backend now embeds positioned HarfBuzz
-  glyphs from the vendored Noto Nastaliq Urdu font, but per-run font fallback
-  and source-font matching are not implemented yet.
+- **Partial original-font shaping**: default rendering uses Noto Nastaliq.
+  The experimental local-bank path switches PDF resources for verified
+  whole-word ligatures. Per-run style selection, general cluster fallback,
+  multi-component positioning, and source spacing remain unimplemented.
+  Sample 2 scores 14.1% overlap with this path versus 14.3% default; it stays
+  opt-in. See `docs/research/inpage-font-banks.md`.
 - **Layout styling incomplete**: verified v1 frame geometry, story links,
   columns, and rotation render in opt-in positioned mode. Per-run font, size,
   color, cell style, pattern, and outline records are not decoded yet.

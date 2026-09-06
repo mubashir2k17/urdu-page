@@ -31,6 +31,8 @@ export class PdfLibBackend implements PdfBackend {
   private fontId: string | null = null;
   private currentPage: PDFPage | null = null;
   private currentFontKey: PDFName | null = null;
+  private readonly fonts = new Map<string, PDFFont>();
+  private readonly pageFontKeys = new Map<string, PDFName>();
   private readonly images = new Map<string, Awaited<ReturnType<PDFDocument["embedPng"]>>>();
 
   private constructor(doc: PDFDocument) {
@@ -47,15 +49,24 @@ export class PdfLibBackend implements PdfBackend {
     // Subsetting triggers an additional fontkit layout pass that crashes on
     // some complex Arabic fonts. Full embedding is larger but safer; ordinary
     // shaping and measurement are handled by @inpage/text-shaper.
+    if (this.fonts.has(fontId)) throw new Error(`Duplicate PDF font identity: ${fontId}`);
     this.font = await this.doc.embedFont(fontBytes, { subset: false });
     this.fontId = fontId;
+    this.fonts.set(fontId, this.font);
+  }
+
+  async registerFont(fontBytes: Uint8Array, fontId: string): Promise<void> {
+    if (!fontId || this.fonts.has(fontId)) throw new Error(`Duplicate or empty PDF font identity: ${fontId}`);
+    this.fonts.set(fontId, await this.doc.embedFont(fontBytes, { subset: false }));
   }
 
   addPage(width: number, height: number): void {
     if (!this.font) throw new Error("Font must be set before adding a page");
     const page = this.doc.addPage([width, height]);
     this.currentPage = page;
+    this.pageFontKeys.clear();
     this.currentFontKey = page.node.newFontDictionary(this.font.name, this.font.ref);
+    this.pageFontKeys.set(this.fontId!, this.currentFontKey);
   }
 
   measureShapedRun(run: ShapedRun, size: number): number {
@@ -70,6 +81,14 @@ export class PdfLibBackend implements PdfBackend {
       throw new Error(
         `Shaped run uses font ${run.fontId}, but the PDF backend embedded ${this.fontId}`,
       );
+    }
+    for (const glyph of run.glyphs) {
+      if (glyph.fontId && !this.fonts.has(glyph.fontId)) {
+        throw new Error(`Shaped glyph uses unregistered font ${glyph.fontId}`);
+      }
+      if (!Number.isInteger(glyph.id) || glyph.id < 0 || glyph.id > 0xffff) {
+        throw new Error(`Glyph ID ${glyph.id} cannot be encoded as an Identity-H CID`);
+      }
     }
 
     const scale = size / run.unitsPerEm;
@@ -89,9 +108,18 @@ export class PdfLibBackend implements PdfBackend {
       setFontAndSize(this.currentFontKey, size),
     );
 
+    let activeFontId = run.fontId;
     for (const glyph of run.glyphs) {
-      if (!Number.isInteger(glyph.id) || glyph.id < 0 || glyph.id > 0xffff) {
-        throw new Error(`Glyph ID ${glyph.id} cannot be encoded as an Identity-H CID`);
+      const glyphFontId = glyph.fontId ?? run.fontId;
+      if (glyphFontId !== activeFontId) {
+        let key = this.pageFontKeys.get(glyphFontId);
+        if (!key) {
+          const font = this.fonts.get(glyphFontId)!;
+          key = this.currentPage.node.newFontDictionary(font.name, font.ref);
+          this.pageFontKeys.set(glyphFontId, key);
+        }
+        this.currentPage.pushOperators(setFontAndSize(key, size));
+        activeFontId = glyphFontId;
       }
       this.currentPage.pushOperators(
         setTextMatrix(
