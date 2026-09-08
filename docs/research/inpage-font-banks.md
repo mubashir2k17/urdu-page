@@ -99,7 +99,7 @@ The DAT also maps legacy `81 A4 9C` (ایک) to bank 84 / slot `0x65`, but the
 supplied `NOORIN84.UTF` has no glyph there. This is an observed data/font
 mismatch. The renderer falls back for that word; it does not guess a replacement.
 
-## Rendering result and limits
+## Initial rendering result and limits
 
 `LegacyLigatureTextShaper` selects complete whitespace-delimited word matches.
 Unmatched words, punctuation-attached words, and marked variants retain
@@ -126,12 +126,62 @@ character fallback, inter-ligature kerning, mark assembly, bidi, run font/style
 selection, tables, fills, or source typography. Full bank embedding increases
 PDF size. No v2/v3 or other DAT profile support is claimed.
 
+## Continuation: source widths and two-component overlays
+
+The initial milestone is committed as `e9c4ef4`. Further inspection establishes
+the following behavior in the same executable and DAT profile:
+
+| Address | Observed operation |
+|---|---|
+| `0x409269–0x40928a` | Loads the width at `table[bank * 256 + slot]` |
+| `0x409287–0x409292` | Returns zero for zero slots or zero widths before division |
+| `0x409294–0x4092c8` | Adds spacing for Noori non-space slots; spacing is 65 at executable data address `0x4e514c` |
+| `0x4092d4–0x4092e7` | Divides the scaled width by the bank's slot-zero denominator |
+| `0x40bda1–0x40bdb5` | Subtracts the advance from the RTL pen before drawing |
+| `0x40c27b–0x40c29b` | Draws at the resulting pen origin |
+
+Thus a normal eligible component advances `(width + 65) / denominator` em.
+The 65-unit value is the observed executable default, not a decoded document
+style. The first table slot is a scale denominator, not a printable glyph.
+For advancing banks it is 1000 in this profile. A zero width returns zero even
+if the denominator is zero; it must not be replaced with the font's advance.
+
+All **1,422** plain-letter, two-component trie mappings have an advancing first
+component and a zero-width second component. The original program advances
+before drawing the first, then leaves the pen unchanged for the second.
+Drawing them at the same origin therefore follows the observed draw loop.
+
+Example: legacy `82 81` (با) maps to bank 81 / slot `0x21` (a dot layer), then
+bank 86 / slot `0x2a` (the body). In the copied cmaps these are glyph IDs 4 and 9.
+Bank 81's DAT width is 249 and denominator 1000; bank 86's width and denominator
+are both zero. The combined advance is **314/1000 em**, with both outlines at
+the same origin. In contrast their font advance widths are 307 and 1000; adding
+those would place the components far apart.
+
+The adapter now reads these metrics, accepts same-origin overlay pairs only,
+and falls back for missing components. Both emitted glyphs retain the same
+logical cluster; the shared advance is applied exactly once. Bounds tests also
+reject fractional/out-of-range bank/slot values and nonzero widths with no
+denominator. Raw source width/position tables are not applied as generic
+font-bounding-box replacements or contextual kerning.
+
+Current support: **17,567 word mappings across 89 banks**. Sample 2 matches 83
+distinct tokens out of 482 (initially 73). It remains one A3 page with **14.2%**
+sampled ink overlap (initially 14.1%; Noto default 14.3%). The experimental PDF
+text count is 3227, versus 3455 default / 2138 reference. Full-layout fidelity
+and frame content completeness remain unresolved.
+
+The regenerated comparison PDF visually confirms با, بت, and بٹ assembled
+from separate bank 81/86 layers. The complete suite passes **70 tests**,
+including three optional local-asset tests, plus root typecheck.
+
 ## Next evidence to recover
 
-1. Decode the root record's character alternatives and the two-component
-   outputs, checking glyph placement against controlled InPage exports.
-2. Follow width/position table consumers to recover their units and compare
-   these metrics with the fonts' advances before changing spacing.
+1. Decode the root record's contextual character alternatives. The branch at
+   `0x413de5–0x413e56` selects between alternatives; root pairs must not be
+   treated as the trie terminal's overlay pairs.
+2. Follow the position table consumers to recover inter-ligature kerning and
+   any document-level overrides of the observed spacing defaults.
 3. Link source run sizes/font identities and page fills to the renderer.
 4. Use Wine for controlled one-property document/export experiments if static
    evidence cannot distinguish the remaining fields.

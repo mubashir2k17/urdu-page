@@ -22,6 +22,7 @@ import { extractImages } from "./images.js";
 import { extractPageSetup } from "./page-setup.js";
 import { extractPageObjects } from "./page-objects.js";
 import { decodeStories } from "./stories.js";
+import { decodeStyledStories } from "./styled-stories.js";
 
 export interface OpenInPageOptions extends Partial<DocumentOptions> {
   mode?: "urdu" | "arabic";
@@ -114,11 +115,16 @@ export function openInPage(
   let stories: InPageDocument["stories"] = [];
   let pageBreakBefore = new Set<number>();
   let decodeDiagnostics: Diagnostic[] = [];
+  const styled = version === 1 && contentStream
+    ? decodeStyledStories(contentStream.bytes, options.mode ?? "urdu") : undefined;
 
   if (version === 3) {
     const result = decodeV3(contentStream!.bytes);
     paragraphs = result.paragraphs;
     decodeDiagnostics = result.diagnostics;
+  } else if (styled) {
+    stories = styled.stories;
+    paragraphs = styled.paragraphs;
   } else {
     // v1/v2: the content stream is flat `04 XX` content plus ASCII, but it may
     // be preceded by binary preambles (font/color tables, style blocks) and

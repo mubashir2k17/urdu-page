@@ -1,4 +1,4 @@
-import type { InPageDocument, RenderPdfOptions } from "@inpage/document-model";
+import type { InPageDocument, RenderPdfOptions, TextStyle } from "@inpage/document-model";
 import { createDiagnosticCollector } from "@inpage/diagnostics";
 import { HarfBuzzTextShaper, type ShapedRun, type TextShaper, type ShapeFont } from "@inpage/text-shaper";
 import {
@@ -29,6 +29,7 @@ export interface RenderTypography {
   shaper: TextShaper;
   /** Additional fonts referenced by glyph fontId overrides. */
   fonts: ShapeFont[];
+  resolveFont?: (style: TextStyle, direction: "ltr" | "rtl") => ShapeFont | undefined;
 }
 
 /** A simple built-in fallback font loader (reads from the filesystem in Node). */
@@ -72,13 +73,14 @@ export async function renderPdf(
   }
   const shaper = typography?.shaper ?? new HarfBuzzTextShaper();
   const shapedRuns = new Map<string, ShapedRun>();
-  const shape = (text: string, direction: "ltr" | "rtl" = "rtl"): ShapedRun => {
-    const cacheKey = `${direction}:${text}`;
+  const shape = (text: string, direction: "ltr" | "rtl" = "rtl", style?: TextStyle): ShapedRun => {
+    const selectedFont = style ? typography?.resolveFont?.(style, direction) ?? shapeFont : shapeFont;
+    const cacheKey = `${selectedFont.id}:${direction}:${text}`;
     const cached = shapedRuns.get(cacheKey);
     if (cached) return cached;
     const run = shaper.shape({
       text,
-      font: shapeFont,
+      font: selectedFont,
       direction,
       language: direction === "rtl" ? "ur" : "en",
       script: direction === "rtl" ? "arab" : "latn",

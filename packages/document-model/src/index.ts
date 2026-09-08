@@ -63,7 +63,26 @@ export type TextRun = {
   /** InPage character codes (second byte of `04 XX` pairs), for diagnostics. */
   rawCodes?: number[];
   styleId?: number;
+  style?: TextStyle;
 };
+
+/** Source typography; distances are in points, scales are dimensionless. */
+export interface TextStyle {
+  fontSize: number;
+  lineHeight?: number;
+  latinFontName?: string;
+  arabicFontName?: string;
+  bold?: boolean;
+  italic?: boolean;
+  alignment?: "left" | "center" | "justify" | "right";
+  horizontalScale?: number;
+  baselineShift?: number;
+  trackingEm?: number;
+  trackingPoints?: number;
+  tabStops?: {position:number;alignment:number}[];
+  outline?: boolean;
+  colorIndex?: number;
+}
 
 export interface Paragraph {
   index: number;
@@ -106,6 +125,12 @@ export interface PageObject {
   columnCount?: number;
   rotationDegrees?: number;
   hasBorder?: boolean;
+  fillColorIndex?: number;
+  borderWidth?: number;
+  borderStyle?: number;
+  fillPattern?: number;
+  shape?: "rectangle" | "ellipse" | "polygon";
+  polygon?: {x:number;y:number}[];
   sourceOffset: number;
   confidence: Confidence;
 }

@@ -8,7 +8,7 @@ import { loadInPageTypography } from "./inpage-fonts.js";
 const typography = loadInPageTypography(resolve(process.argv[2] ?? "fonts/inpage-local"));
 const font = { id: "embedded-fallback", bytes: readFileSync(resolve("fonts/NotoNastaliqUrdu-Regular.ttf")) };
 const fallback = new HarfBuzzTextShaper();
-const words = ["نستعلیق", "پیج", "مکمل", "میں", "پبلشنگ", "پیکیج", "نمبر", "بہت", "کثیر", "متن", "کی", "ہے"];
+const words = ["نستعلیق", "پیج", "مکمل", "میں", "پبلشنگ", "پیکیج", "با", "بت", "بٹ", "متن", "کی", "ہے"];
 const rows = words.map((text) => {
   const input = { text, font, direction: "rtl" as const, script: "arab", language: "ur" };
   return { text, original: typography.shaper.shape(input), fallback: fallback.shape(input) };
@@ -35,9 +35,10 @@ rows.forEach((row, index) => {
   const y = 696 - index * 49;
   const bank = row.original.glyphs[0]?.fontId;
   if (!bank) throw new Error(`Preview word has no recovered glyph: ${row.text}`);
-  page.drawText(bank.replace("inpage-noorin-", "NOORIN "), { x: 282, y: y - 4, size: 8, font: label, color: rgb(0.4, 0.4, 0.4) });
+  const banks = [...new Set(row.original.glyphs.map(({ fontId }) => fontId!.replace("inpage-noorin-", "")))];
+  page.drawText(`NOORIN ${banks.join(" + ")}`, { x: 282, y: y - 4, size: 8, font: label, color: rgb(0.4, 0.4, 0.4) });
 });
-page.drawText("Experimental whole-word mapping. Source spacing and multi-component ligatures remain unresolved.", {
+page.drawText("Experimental whole-word mapping with source widths and zero-advance overlays; styles remain unresolved.", {
   x: 40, y: 55, size: 9, font: label, color: rgb(0.3, 0.3, 0.3) });
 mkdirSync(resolve("output/pdf"), { recursive: true });
 writeFileSync(resolve("output/pdf/inpage-font-comparison.pdf"), await pdf.save());

@@ -38,10 +38,12 @@ export interface ShapedGlyph {
   yOffset: number;
 }
 
-export { decodeInPageFontData } from "./inpage-font-data.js";
-export type { InPageLigature } from "./inpage-font-data.js";
+export { decodeInPageFontData, readInPageBankMetrics, readInPageIsolatedGlyph } from "./inpage-font-data.js";
+export type { InPageLigature, InPageBankMetrics } from "./inpage-font-data.js";
 export { LegacyLigatureTextShaper } from "./legacy-ligature-shaper.js";
 export type { LegacyLigatureGlyph } from "./legacy-ligature-shaper.js";
+export { LegacyArabicTextShaper } from "./legacy-arabic-shaper.js";
+export type { ArabicLetterForms } from "./legacy-arabic-shaper.js";
 
 export interface ShapedRun {
   logicalText: string;
@@ -51,6 +53,8 @@ export interface ShapedRun {
   script: string;
   /** Coordinate scale used by every glyph metric in this run. */
   unitsPerEm: number;
+  /** Optional cell-height to em-height conversion for legacy Windows fonts. */
+  fontSizeScale?: number;
   glyphs: ShapedGlyph[];
   totalAdvance: number;
   missingGlyphCount: number;

@@ -50,6 +50,23 @@ improved, source styles are unconnected, and the data references some slots
 missing from the supplied fonts. Full embedding of many banks makes PDFs
 larger. Copied assets and generated font specimens remain local.
 
+## Extension: source widths and two-component overlays
+
+Further static tracing verifies the width calculation and same-origin placement
+of zero-advance second components. The adapter now accepts these pairs and uses
+DAT widths plus the executable's observed 65-unit default spacing, normalized
+by each bank's metric denominator. It does not infer contextual kerning.
+
+`LegacyLigatureGlyph.overlay` optionally carries the second font/glyph identity.
+Both output glyphs retain one logical cluster and origin; the combined advance
+is applied once after the second glyph. Width readers reject invalid references
+and nonzero widths with zero denominators, while allowing zero-width banks.
+
+This expands support to 17,567 mappings across 89 banks, including 1,422
+overlays. Validation passes 70 tests and typecheck; the refreshed specimen
+visually confirms three dot/body assemblies. Sample 2 scores 14.2% versus the
+14.3% unchanged default, so this remains opt-in.
+
 ## Alternatives considered
 
 Directly replacing Noto with a `.TTF` or `.UTF` bank was rejected: its symbol

@@ -27,7 +27,7 @@ visual-diff tests demonstrate it.
 | Embedded images / previews | ⚠️ Partial | Hex-suffixed `PPicts*` streams and uncompressed indexed/24/32-bit DIBs are decoded; linked images render in positioned mode |
 | Arabic shaping / joining | ✅ Working (single font) | Portable HarfBuzz/WASM shapes Noto Nastaliq at book scale; the PDF backend emits its glyph ids and positions directly |
 | Font-provider selection | ⚠️ Partial | Exact decoded document-font matches and provider fallback work; per-run style/font ids are not decoded |
-| Original InPage font banks | ⚠️ Experimental | Local import and 16,145 whole-word glyph mappings across 88 Noori banks; opt-in `--inpage-fonts`, Unicode fallback for unsupported words |
+| Original InPage font banks | ⚠️ Experimental | Local import and 17,567 whole-word mappings across 89 banks, including 1,422 two-component overlays and source width metrics; opt-in `--inpage-fonts` |
 | Correct bidi ordering | ⚠️ Partial | Positioned layout segments Urdu, Latin, and neutral word runs; a full Unicode bidi implementation is not present |
 | V1 source page setup | ✅ Working | Exact width, height, and margins decoded from verified fixed header fields |
 | Page size preservation | ✅ Working for v1 | Renderer uses decoded source width/height; defaults to A4 when unavailable |
@@ -62,9 +62,10 @@ pages that are both blank when averaging visual overlap.
 
 - **Partial original-font shaping**: default rendering uses Noto Nastaliq.
   The experimental local-bank path switches PDF resources for verified
-  whole-word ligatures. Per-run style selection, general cluster fallback,
-  multi-component positioning, and source spacing remain unimplemented.
-  Sample 2 scores 14.1% overlap with this path versus 14.3% default; it stays
+  whole-word ligatures and same-origin overlays, using source widths plus the
+  observed default spacing. Per-run style selection, general cluster fallback,
+  character joining, and inter-ligature kerning remain unimplemented.
+  Sample 2 scores 14.2% overlap with this path versus 14.3% default; it stays
   opt-in. See `docs/research/inpage-font-banks.md`.
 - **Layout styling incomplete**: verified v1 frame geometry, story links,
   columns, and rotation render in opt-in positioned mode. Per-run font, size,

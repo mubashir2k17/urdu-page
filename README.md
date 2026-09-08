@@ -30,10 +30,11 @@ npm run audit:references -- --case sample --inpage-fonts fonts/inpage-local
 ```
 
 This copies the original fonts and ligature data into ignored local storage,
-then uses verified whole-word Noori glyphs with Unicode fallback for unmatched
-words. The preview is `output/pdf/inpage-font-comparison.pdf`; experimental
+then uses verified whole-word Noori glyphs, source widths, and two-component
+overlays with Unicode fallback for unmatched words.
+The preview is `output/pdf/inpage-font-comparison.pdf`; experimental
 audit output is `tmp/pdfs/inpage-font-audit/`. Noto remains the default: Sample 2
-currently scores 14.1% overlap with original word glyphs versus 14.3% default.
+currently scores 14.2% overlap with original word glyphs versus 14.3% default.
 See [font recovery findings](./docs/research/inpage-font-banks.md) for supported
 data identity, offsets, rendering limits, and reproduction steps.
 

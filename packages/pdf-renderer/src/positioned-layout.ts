@@ -1,6 +1,7 @@
-import type { InPageDocument, Story } from "@inpage/document-model";
+import type { InPageDocument, Story, TextStyle } from "@inpage/document-model";
 import type { ShapedRun } from "@inpage/text-shaper";
 import type { PdfBackend } from "./backend.js";
+import { drawStyledStory } from "./styled-layout.js";
 
 type Direction = "ltr" | "rtl";
 
@@ -8,7 +9,7 @@ export async function renderPositionedPage(
   document: InPageDocument,
   backend: PdfBackend,
   outputHeight: number,
-  shape: (text: string, direction: Direction) => ShapedRun,
+  shape: (text: string, direction: Direction, style?: TextStyle) => ShapedRun,
 ): Promise<void> {
   const storyByReference = associateStoriesWithReferences(document);
   const imageByName = new Map(document.images.map((image) => [image.name.toLowerCase(), image]));
@@ -19,7 +20,7 @@ export async function renderPositionedPage(
 
     if (object.kind === "image" && object.imageName) {
       const image = imageByName.get(object.imageName.toLowerCase());
-      if (image && image.format !== "unknown") await backend.drawImage(image, x, bottom, width, height);
+      if (image && image.format !== "unknown") await backend.drawImage(image, x, bottom, width, height,0,object);
       continue;
     }
     if (object.kind === "line") {
@@ -33,13 +34,20 @@ export async function renderPositionedPage(
       continue;
     }
     if (object.kind === "graphic") {
-      backend.drawRectangle(x, bottom, width, height);
+      if (backend.drawGraphic) backend.drawGraphic(object,outputHeight);
+      else backend.drawRectangle(x, bottom, width, height);
       continue;
     }
     if (object.kind !== "text" || object.storyReference === undefined) continue;
-    if (object.hasBorder) backend.drawRectangle(x, bottom, width, height);
+    if (backend.drawGraphic) backend.drawGraphic(object,outputHeight);
+    else if (object.hasBorder) backend.drawRectangle(x, bottom, width, height);
     const story = storyByReference.get(object.storyReference);
     if (!story) continue;
+
+    if (story.paragraphs.some(paragraph => paragraph.runs.some(run => run.style))) {
+      drawStyledStory(story, object, backend, shape, outputHeight);
+      continue;
+    }
 
     drawStory(
       story,

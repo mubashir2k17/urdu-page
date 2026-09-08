@@ -1,10 +1,11 @@
 import { createHash } from "node:crypto";
-import { copyFileSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import fontkit from "@pdf-lib/fontkit";
-import { decodeInPageFontData, LegacyLigatureTextShaper, type LegacyLigatureGlyph } from "@inpage/text-shaper";
+import { decodeInPageFontData, readInPageBankMetrics, readInPageIsolatedGlyph, LegacyLigatureTextShaper, type LegacyLigatureGlyph } from "@inpage/text-shaper";
 import type { RenderTypography } from "@inpage/pdf-renderer";
 import { CHAR_MAP_URDU } from "../packages/inp-parser/src/charmap.js";
+import { loadArabicFontFamilies } from "./inpage-arabic-fonts.js";
 
 const DATA_SHA256 = "b4f4136b8b4e36ebcd3bb101904be79c35786437334fcd8a7e7c89253ba3225d";
 const sha256 = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
@@ -38,7 +39,7 @@ export function importInPageFonts(source: string, destination: string): void {
   console.log(`Copied ${inventory.length} font files; decoded ${ligatures.length} ligature mappings into ${destination}`);
 }
 
-/** Only complete words mapping to one original glyph are eligible. */
+/** Complete-word mappings with verified advancing/overlay component structure. */
 export function loadInPageTypography(directory: string): RenderTypography {
   const data = readFileSync(join(directory, "INPAGEU.DAT"));
   if (sha256(data) !== DATA_SHA256) throw new Error("Unrecognized INPAGEU.DAT");
@@ -57,24 +58,73 @@ export function loadInPageTypography(directory: string): RenderTypography {
   const candidates = new Map<string, LegacyLigatureGlyph>();
   const ambiguous = new Set<string>();
   for (const entry of decodeInPageFontData(data)) {
-    if (entry.components.length !== 1) continue;
-    // Plain letters only; composite/diacritic interpretation needs more evidence.
-    if (entry.legacyCodes.some((code) => code < 0x81 || code > 0xa7)) continue;
-    const text = entry.legacyCodes.map((code) => CHAR_MAP_URDU[code]).join("");
+    // Explicit trie terminals include marked forms as well as plain ligatures.
+    if (entry.legacyCodes.some((code) => !CHAR_MAP_URDU[code])) continue;
+    const text = entry.legacyCodes.map((code) => CHAR_MAP_URDU[code]).join("").normalize("NFC");
     const { bank, slot } = entry.components[0]!;
     const font = banks.get(bank);
     if (!font) continue;
+    const metrics = readInPageBankMetrics(data, bank, slot);
+    if (!metrics.width) continue;
     const glyph = font.glyphForCodePoint(0xf000 + slot);
     if (!glyph.id) continue;
-    const value = { text, fontId: `inpage-noorin-${bank}`, glyphId: glyph.id,
-      advance: glyph.advanceWidth, unitsPerEm: font.unitsPerEm };
+    // 0x4092c1 adds the executable's 65-unit default spacing for non-space
+    // Noori glyphs, then divides by the bank's slot-zero metric denominator.
+    const value: LegacyLigatureGlyph = { text, fontId: `inpage-noorin-${bank}`, glyphId: glyph.id,
+      advance: metrics.width + 65, unitsPerEm: metrics.unitsPerEm,
+      kerning:{right:metrics.right,left:metrics.left,clearance:85} };
+    const second = entry.components[1];
+    if (second) {
+      const overlayFont = banks.get(second.bank);
+      if (!overlayFont || readInPageBankMetrics(data, second.bank, second.slot).width !== 0) continue;
+      const overlay = overlayFont.glyphForCodePoint(0xf000 + second.slot);
+      if (!overlay.id) continue;
+      value.overlay = { fontId: `inpage-noorin-${second.bank}`, glyphId: overlay.id };
+    }
     const prior = candidates.get(text);
-    if (prior && (prior.fontId !== value.fontId || prior.glyphId !== value.glyphId)) ambiguous.add(text);
+    if (prior && JSON.stringify(prior) !== JSON.stringify(value)) ambiguous.add(text);
     candidates.set(text, value);
   }
   for (const text of ambiguous) candidates.delete(text);
+  for (let code = 0x81; code <= 0xa7; code++) {
+    const component = readInPageIsolatedGlyph(data, code);
+    const text = CHAR_MAP_URDU[code];
+    if (!component || !text || candidates.has(text)) continue;
+    const font = banks.get(component.bank);
+    const glyph = font?.glyphForCodePoint(0xf000 + component.slot);
+    if (!glyph?.id) continue;
+    const metrics = readInPageBankMetrics(data, component.bank, component.slot);
+    if (!metrics.width) continue;
+    candidates.set(text, {text, fontId:`inpage-noorin-${component.bank}`, glyphId:glyph.id,
+      advance:metrics.width + 65, unitsPerEm:metrics.unitsPerEm,
+      kerning:{right:metrics.right,left:metrics.left,clearance:85}});
+  }
   const entries = [...candidates.values()];
-  const usedFonts = new Set(entries.map(({ fontId }) => fontId));
-  console.log(`Enabled ${entries.length} single-glyph word mappings across ${usedFonts.size} Noori banks`);
-  return { shaper: new LegacyLigatureTextShaper(entries), fonts: fonts.filter(({ id }) => usedFonts.has(id)) };
+  const usedFonts = new Set(entries.flatMap(({ fontId, overlay }) => overlay ? [fontId, overlay.fontId] : [fontId]));
+  console.log(`Enabled ${entries.length} word mappings (${entries.filter(({ overlay }) => overlay).length} overlays) across ${usedFonts.size} Noori banks`);
+  const latin = new Map<string, RenderTypography["fonts"][number]>();
+  const cellScales = new Map<string,number>();
+  for (const variant of ["", " Bold", " Italic", " Bold Italic"]) {
+    const file = join(directory, `Arial${variant}.ttf`);
+    if (!existsSync(file)) continue;
+    const font = {id: `local-arial${variant.replaceAll(" ", "-").toLowerCase()}`, bytes: readFileSync(file)};
+    latin.set(variant, font);
+    const metrics=fontkit.create(font.bytes);
+    if ("glyphForCodePoint" in metrics) cellScales.set(font.id,metrics.unitsPerEm/(metrics.ascent-metrics.descent));
+  }
+  const arabic = loadArabicFontFamilies(directory,data);
+  const noori = new LegacyLigatureTextShaper(entries,true);
+  return {
+    shaper: {shape(input) {
+      const run=(arabic.shapers.get(input.font.id) ?? noori).shape(input);
+      const fontSizeScale=cellScales.get(input.font.id);
+      return fontSizeScale ? {...run,fontSizeScale} : run;
+    }},
+    fonts: [...fonts.filter(({ id }) => usedFonts.has(id)), ...latin.values(), ...arabic.fonts],
+    resolveFont(style, direction) {
+      if (direction === "rtl" && style.arabicFontName) return arabic.names.get(style.arabicFontName);
+      if (direction !== "ltr" || style.latinFontName !== "Arial") return undefined;
+      return latin.get(`${style.bold ? " Bold" : ""}${style.italic ? " Italic" : ""}`);
+    },
+  };
 }

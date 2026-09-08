@@ -1,5 +1,5 @@
 import type { ShapedRun } from "@inpage/text-shaper";
-import type { EmbeddedImage } from "@inpage/document-model";
+import type { EmbeddedImage, PageObject } from "@inpage/document-model";
 import {
   PDFDocument,
   PDFFont,
@@ -16,9 +16,25 @@ import {
   showText,
   rgb,
   degrees,
+  pushGraphicsState,
+  popGraphicsState,
+  setFillingRgbColor,
+  setStrokingRgbColor,
+  setTextRenderingMode,
+  TextRenderingMode,
+  setLineWidth,
+  moveTo,
+  lineTo,
+  closePath,
+  fill,
+  stroke,
+  fillAndStroke,
+  appendBezierCurve,
+  clipEvenOdd,
+  endPath,
 } from "pdf-lib";
 import fontkit from "@pdf-lib/fontkit";
-import type { PdfBackend } from "./backend.js";
+import type { PdfBackend, TextAppearance } from "./backend.js";
 import { dibToPng } from "./dib-to-png.js";
 
 /**
@@ -70,17 +86,24 @@ export class PdfLibBackend implements PdfBackend {
   }
 
   measureShapedRun(run: ShapedRun, size: number): number {
-    return run.totalAdvance * (size / run.unitsPerEm);
+    return run.totalAdvance * (size / run.unitsPerEm) * (run.fontSizeScale ?? 1);
   }
 
-  drawShapedRun(run: ShapedRun, x: number, y: number, size: number, rotationDegrees = 0): void {
+  drawShapedRun(run: ShapedRun, x: number, y: number, size: number, rotationDegrees = 0, appearance:TextAppearance = {}): void {
+    size *= run.fontSizeScale ?? 1;
     if (!this.currentPage) throw new Error("No page added");
     if (!this.font) throw new Error("Font not set");
     if (!this.currentFontKey) throw new Error("Font resource not set");
-    if (run.fontId !== this.fontId) {
+    if (!this.fonts.has(run.fontId)) {
       throw new Error(
         `Shaped run uses font ${run.fontId}, but the PDF backend embedded ${this.fontId}`,
       );
+    }
+    let runFontKey = this.pageFontKeys.get(run.fontId);
+    if (!runFontKey) {
+      const runFont = this.fonts.get(run.fontId)!;
+      runFontKey = this.currentPage.node.newFontDictionary(runFont.name, runFont.ref);
+      this.pageFontKeys.set(run.fontId, runFontKey);
     }
     for (const glyph of run.glyphs) {
       if (glyph.fontId && !this.fonts.has(glyph.fontId)) {
@@ -92,20 +115,27 @@ export class PdfLibBackend implements PdfBackend {
     }
 
     const scale = size / run.unitsPerEm;
+    const horizontalScale = appearance.horizontalScale ?? 1;
+    const shade = appearance.colorIndex === 1 ? 1 : 0;
     const radians = (rotationDegrees * Math.PI) / 180;
     const cosine = Math.cos(radians);
     const sine = Math.sin(radians);
-    let penX = x;
-    let penY = y;
+    let penX = 0;
+    let penY = 0;
     const actualText = PDFHexString.fromText(run.logicalText);
 
     this.currentPage.pushOperators(
+      pushGraphicsState(),
+      setFillingRgbColor(shade,shade,shade),
+      setStrokingRgbColor(shade,shade,shade),
+      setLineWidth(0.5),
       PDFOperator.of(PDFOperatorNames.BeginMarkedContentSequence, [
         PDFName.of("Span"),
         `<< /ActualText ${actualText.toString()} >>`,
       ]),
       beginText(),
-      setFontAndSize(this.currentFontKey, size),
+      setTextRenderingMode(appearance.outline ? TextRenderingMode.Outline : TextRenderingMode.Fill),
+      setFontAndSize(runFontKey, size),
     );
 
     let activeFontId = run.fontId;
@@ -123,12 +153,12 @@ export class PdfLibBackend implements PdfBackend {
       }
       this.currentPage.pushOperators(
         setTextMatrix(
-          cosine,
-          sine,
+          cosine * horizontalScale,
+          sine * horizontalScale,
           -sine,
           cosine,
-          penX + glyph.xOffset * scale,
-          penY + glyph.yOffset * scale,
+          x + (penX + glyph.xOffset * scale) * horizontalScale * cosine - (penY + glyph.yOffset * scale) * sine,
+          y + (penX + glyph.xOffset * scale) * horizontalScale * sine + (penY + glyph.yOffset * scale) * cosine,
         ),
         showText(PDFHexString.of(glyph.id.toString(16).padStart(4, "0"))),
       );
@@ -136,7 +166,7 @@ export class PdfLibBackend implements PdfBackend {
       penY += glyph.yAdvance * scale;
     }
 
-    this.currentPage.pushOperators(endText(), endMarkedContent());
+    this.currentPage.pushOperators(endText(), endMarkedContent(),popGraphicsState());
   }
 
   async drawImage(
@@ -146,6 +176,7 @@ export class PdfLibBackend implements PdfBackend {
     width: number,
     height: number,
     rotationDegrees = 0,
+    appearance:Pick<PageObject,"shape"|"borderWidth"|"borderStyle"> = {},
   ): Promise<void> {
     if (!this.currentPage) throw new Error("No page added");
     let embedded = this.images.get(image.name);
@@ -156,6 +187,14 @@ export class PdfLibBackend implements PdfBackend {
         : await this.doc.embedPng(bytes);
       this.images.set(image.name, embedded);
     }
+    if (appearance.shape === "ellipse") {
+      const rx=width/2,ry=height/2,cx=x+rx,cy=y+ry,k=0.5522847498307936;
+      this.currentPage.pushOperators(pushGraphicsState(),moveTo(cx+rx,cy),
+        appendBezierCurve(cx+rx,cy+ry*k,cx+rx*k,cy+ry,cx,cy+ry),
+        appendBezierCurve(cx-rx*k,cy+ry,cx-rx,cy+ry*k,cx-rx,cy),
+        appendBezierCurve(cx-rx,cy-ry*k,cx-rx*k,cy-ry,cx,cy-ry),
+        appendBezierCurve(cx+rx*k,cy-ry,cx+rx,cy-ry*k,cx+rx,cy),closePath(),clipEvenOdd(),endPath());
+    }
     this.currentPage.drawImage(embedded, {
       x,
       y,
@@ -163,6 +202,12 @@ export class PdfLibBackend implements PdfBackend {
       height,
       rotate: degrees(rotationDegrees),
     });
+    if (appearance.shape === "ellipse") {
+      this.currentPage.pushOperators(popGraphicsState());
+      if (appearance.borderStyle) this.currentPage.drawEllipse({x:x+width/2,y:y+height/2,xScale:width/2,yScale:height/2,
+        borderColor:rgb(0,0,0),borderWidth:appearance.borderWidth ?? 1,
+        ...(appearance.borderStyle === 15 ? {borderDashArray:[3,3]} : {})});
+    }
   }
 
   drawLine(x1: number, y1: number, x2: number, y2: number): void {
@@ -185,6 +230,32 @@ export class PdfLibBackend implements PdfBackend {
       borderWidth: 0.5,
       borderColor: rgb(0, 0, 0),
     });
+  }
+
+  drawGraphic(object:PageObject,pageHeight:number): void {
+    if (!this.currentPage) throw new Error("No page added");
+    const {xPoints:x,yPoints:top,widthPoints:width,heightPoints:height} = object.bounds;
+    const shade = object.fillColorIndex === 2 ? 0 : object.fillColorIndex === 3 ? 0.5 : 1;
+    const shouldFill = object.fillColorIndex !== undefined && object.fillColorIndex !== 0;
+    const borderWidth = object.hasBorder ? object.borderWidth ?? 1 : 0;
+    if (object.polygon?.length) {
+      const first=object.polygon[0]!;
+      this.currentPage.pushOperators(pushGraphicsState(),setFillingRgbColor(shade,shade,shade),
+        setStrokingRgbColor(0,0,0),setLineWidth(borderWidth),moveTo(first.x,pageHeight-first.y),
+        ...object.polygon.slice(1).map(point=>lineTo(point.x,pageHeight-point.y)),closePath(),
+        shouldFill && borderWidth ? fillAndStroke() : shouldFill ? fill() : stroke(),popGraphicsState());
+    } else if (shouldFill || borderWidth) {
+      this.currentPage.drawRectangle({x,y:pageHeight-top-height,width,height,borderWidth,
+        ...(borderWidth ? {borderColor:rgb(0,0,0)} : {}),
+        ...(shouldFill ? {color:rgb(shade,shade,shade)} : {})});
+      if (object.fillPattern === 3) {
+        const inset=borderWidth;
+        for (let py=top+inset+2;py<top+height-inset-2;py+=6) {
+          for (let px=x+inset+2;px<x+width-inset-2;px+=7) this.currentPage.drawLine({
+            start:{x:px,y:pageHeight-py},end:{x:px+2,y:pageHeight-py-2},thickness:0.35,color:rgb(0,0,0)});
+        }
+      }
+    }
   }
 
   async save(): Promise<Uint8Array> {

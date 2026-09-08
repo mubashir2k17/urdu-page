@@ -22,7 +22,50 @@ coordinates in the renderer.
 
 ## Current status
 
-### 2026-09-07 font recovery update
+### 2026-09-08: SAMPLE2 fidelity goal remains active
+
+- User target: at least **90%** in the existing 36 dpi ink-overlap audit. Latest
+  fresh result is **38.5%**, one matching A3 sheet; this goal is not complete.
+- User requested order: rotation, font styles, decorative effects, table
+  alignment. A first pass now covers all four. Continue with the **80/20 rule**:
+  fix large visible omissions before rare shaping details.
+- Corrected glyph-pen rotation; decoded the bounded v1 text/style table;
+  recovered font selectors, source sizes/leading, manual tracking and shifts;
+  implemented Noori joining segments and inter-segment spacing; added Arabic
+  symbol families and Arial variants from local font assets.
+- Draws outlined text, horizontal scaling, source polygon frames, transparent
+  and filled panels, ellipse image clipping, approximate hatch/dashed borders,
+  and the table's source tab stops including decimal alignment.
+- Fresh validation: **78/78 tests**, root typecheck, and SAMPLE2 audit. Local
+  font mode is still opt-in; reference PDF is evaluation-only.
+- Largest remaining gaps: main heading wraps; lower poem loses its two-column
+  arrangement; source baseline/paragraph alignment and mixed-script flow;
+  missing lower specimen text; precise decorative borders and Arabic marks.
+- See `docs/research/sample2-layout-recovery.md` for binary evidence, current
+  limitations and the next high-impact investigation. Earlier sections below
+  describe historical milestones and their earlier scores.
+
+
+### Continuation: source widths and overlay glyphs
+
+- Initial font-recovery milestone committed as `e9c4ef4`.
+- Traced the original advance calculation at `0x409060`: it uses the DAT width
+  plus a 65-unit default spacing, divided by the bank's metric denominator.
+- Enabled 1,422 two-component mappings after verifying that the second
+  component has zero advance and is drawn at the same origin. The current
+  adapter supports **17,567 mappings across 89 banks**.
+- Sample 2 has 83 distinct matching tokens (previously 73). Its experimental
+  overlap is **14.2%**, up from 14.1%; unchanged Noto default remains 14.3%.
+  It remains one A3 page. Original-font mode stays opt-in.
+- The regenerated font comparison includes visually checked dot/body assembly
+  for با, بت, and بٹ. Missing slots continue to fall back.
+- Validation: **70/70 tests**, root typecheck, and focused reference audit.
+  Three tests use imported local assets and skip without them.
+- Root character alternatives, contextual joining, inter-ligature kerning,
+  source run styles, and frame fills are still unresolved. See the continuation
+  section in `docs/research/inpage-font-banks.md` for exact static evidence.
+
+### Initial 2026-09-07 font recovery baseline
 
 - Statically inspected the user-supplied Windows InPage installation; Wine was
   unnecessary for this pass. The folder label is not a verified app version.

@@ -4,18 +4,56 @@ const TRIE_START = 0x2334;
 const TRIE_END = 0x2e4a4;
 const ROOTS_START = 0x51ca4;
 
+export interface InPageBankMetrics {
+  /** Bank denominator stored in slot zero; zero is allowed for overlay banks. */
+  unitsPerEm: number;
+  width: number;
+  right: number;
+  left: number;
+}
+
+/** Raw width data used by the observed executable's 0x409060 routine. */
+export function readInPageBankMetrics(source: Uint8Array, bank: number, slot: number): InPageBankMetrics {
+  assertProfile(source);
+  if (!Number.isInteger(bank) || bank < 1 || bank > 89 ||
+      !Number.isInteger(slot) || slot < 0x20 || slot > 0xff) {
+    throw new Error("Invalid InPage bank/slot metric reference");
+  }
+  const view = new DataView(source.buffer, source.byteOffset, source.byteLength);
+  const offset = 0x2e4a4 + bank * 512;
+  const unitsPerEm = view.getUint16(offset, true);
+  const width = view.getUint16(offset + slot * 2, true);
+  if (width && !unitsPerEm) throw new Error("Nonzero InPage width has no metric denominator");
+  const position = 0x398a4 + (bank * 256 + slot) * 4;
+  return { unitsPerEm, width, right:view.getInt16(position,true), left:view.getInt16(position+2,true) };
+}
+
+function assertProfile(source: Uint8Array): void {
+  if (source.length !== INPAGE_FONT_DATA_SIZE || source[0] !== 0xe0 || source[1] !== 0x45) {
+    throw new Error("Unsupported INPAGEU.DAT profile");
+  }
+}
+
 export interface InPageLigature {
   legacyCodes: number[];
   /** Each pair is an InPage font bank and its Windows symbol character slot. */
   components: { bank: number; slot: number }[];
 }
 
+/** Isolated Noori alternative at root +4; contextual alternatives at +6 onward are separate. */
+export function readInPageIsolatedGlyph(source: Uint8Array, code: number): {bank: number; slot: number} | undefined {
+  assertProfile(source);
+  if (!Number.isInteger(code) || code < 0x81 || code > 0xa7) throw new Error("Invalid InPage letter root");
+  const offset = ROOTS_START + code * 20 + 4;
+  const bank = source[offset]! - 0x80;
+  const slot = source[offset + 1]!;
+  if (bank < 1 || bank > 89 || slot < 0x20) return;
+  return {bank, slot};
+}
+
 /** Decode the observed 1999 data file without executing the Windows program. */
 export function decodeInPageFontData(source: Uint8Array): InPageLigature[] {
-  if (source.length !== INPAGE_FONT_DATA_SIZE ||
-      source[0] !== 0xe0 || source[1] !== 0x45) {
-    throw new Error("Unsupported INPAGEU.DAT profile");
-  }
+  assertProfile(source);
   const bytes = new Uint8Array(source);
   const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength);
   // The loader decodes the first 1500 words; the rest of the trie is plain.

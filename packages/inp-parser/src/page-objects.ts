@@ -36,6 +36,7 @@ export function extractPageObjects(data: Uint8Array): PageObject[] {
     const storyReference = findStoryReference(payload);
     const rotation = properties.get(0x1a);
     const columnCount = findColumnCount(payload);
+    const appearance = readAppearance(payload);
     objects.push({
       kind: mapKind(rawKind, imageName),
       id: view.getUint16(2, true),
@@ -49,7 +50,7 @@ export function extractPageObjects(data: Uint8Array): PageObject[] {
       ...(imageName === undefined ? {} : { imageName }),
       ...(columnCount === undefined ? {} : { columnCount }),
       ...(rotation === undefined ? {} : { rotationDegrees: rotation / 1000 }),
-      ...(properties.has(0x40) ? { hasBorder: true } : {}),
+      ...appearance,
       sourceOffset: offset,
       confidence: "high",
     });
@@ -58,6 +59,37 @@ export function extractPageObjects(data: Uint8Array): PageObject[] {
   }
 
   return objects;
+}
+
+function readAppearance(payload: Uint8Array): Partial<PageObject> {
+  const result: Partial<PageObject> = {};
+  const view = new DataView(payload.buffer,payload.byteOffset,payload.byteLength);
+  for (let p = 0; p + 4 <= payload.length; p++) {
+    const key = payload[p];
+    if (payload[p+1] === 5 && key === 5) {
+      const shape = view.getUint16(p+2,true);
+      if (shape === 0 || shape === 1 || shape === 6) result.shape = shape === 1 ? "ellipse" : shape === 6 ? "polygon" : "rectangle";
+    }
+    if (payload[p+1] !== 0x7e) continue;
+    if (key === 0x0e) result.fillColorIndex = view.getUint16(p+2,true);
+    if (key === 0x15) {
+      result.borderStyle = view.getUint16(p+2,true);
+      result.hasBorder = result.borderStyle !== 0;
+    }
+    if (key === 0x19) result.fillPattern = view.getUint16(p+2,true);
+    if (key === 5 && p+6 <= payload.length) result.borderWidth = view.getUint32(p+2,true)/UNITS_PER_POINT;
+    if (key === 0x1b && p+6 <= payload.length) {
+      const bytes = view.getUint32(p+2,true);
+      if (bytes >= 24 && bytes % 8 === 0 && p+6+bytes <= payload.length) {
+        result.polygon = Array.from({length:bytes/8},(_,i) => ({
+          x:view.getInt32(p+6+i*8,true)/UNITS_PER_POINT,
+          y:view.getInt32(p+10+i*8,true)/UNITS_PER_POINT,
+        }));
+        p += bytes+5;
+      }
+    }
+  }
+  return result;
 }
 
 function readProperties(payload: Uint8Array): Map<number, number> {
