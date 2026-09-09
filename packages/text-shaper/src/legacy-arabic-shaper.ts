@@ -18,10 +18,18 @@ export class LegacyArabicTextShaper implements TextShaper {
   constructor(private readonly forms: ReadonlyMap<string, ArabicLetterForms>, private readonly fallback: TextShaper) {}
 
   shape(input: ShapeInput): ShapedRun {
-    const chars = [...input.text.normalize("NFD")];
+    const chars = [...input.text.normalize("NFC")].flatMap(char=>
+      this.forms.has(char)?[char]:[...char.normalize("NFD")]);
     if (!chars.length || chars.some(char => !this.forms.has(char))) return this.fallback.shape(input);
     const clusters: {glyph: ArabicFormGlyph; marks: ArabicFormGlyph[]; cluster: number}[] = [];
-    const bases = chars.map((char,index) => ({char,index,form:this.forms.get(char)!})).filter(({form}) => !form.mark);
+    const letters = chars.map((char,index) => ({char,index,form:this.forms.get(char)!})).filter(({form}) => !form.mark);
+    const bases:typeof letters=[];
+    for(let index=0;index<letters.length;index++) {
+      const letter=letters[index]!,next=letters[index+1];
+      const ligature=next && this.forms.get(letter.char+next.char);
+      if(ligature) {bases.push({...letter,char:letter.char+next!.char,form:ligature});index++;}
+      else bases.push(letter);
+    }
     for (const [index, base] of bases.entries()) {
       const previous = bases[index - 1]?.form;
       const next = bases[index + 1]?.form;

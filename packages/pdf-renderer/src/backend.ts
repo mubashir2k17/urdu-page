@@ -14,9 +14,9 @@ export interface PdfBackend {
     width: number,
     height: number,
     rotationDegrees?: number,
-    appearance?:Pick<PageObject,"shape"|"borderWidth"|"borderStyle">,
+    appearance?:Pick<PageObject,"shape"|"borderWidth"|"borderStyle"|"imagePlacement">,
   ): Promise<void>;
-  drawLine(x1: number, y1: number, x2: number, y2: number): void;
+  drawLine(x1: number, y1: number, x2: number, y2: number,thickness?:number): void;
   drawRectangle(x: number, y: number, width: number, height: number): void;
   drawGraphic?(object:PageObject,pageHeight:number): void;
   save(): Promise<Uint8Array>;

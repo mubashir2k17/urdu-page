@@ -11,6 +11,7 @@ describe("source drawing appearance",()=>{
     expect(objects.find(object=>object.id===18)).toMatchObject({fillColorIndex:3,borderWidth:1,hasBorder:true});
     expect(objects.find(object=>object.id===34)).toMatchObject({shape:"polygon",fillColorIndex:2,
       polygon:[{x:36,y:36},{x:311.959,y:36},{x:50.959,y:51.384},{x:36,y:132.384}]});
-    expect(objects.find(object=>object.id===37)).toMatchObject({shape:"ellipse",borderStyle:15,borderWidth:3});
+    expect(objects.find(object=>object.id===37)).toMatchObject({shape:"ellipse",borderStyle:15,borderWidth:3,
+      imagePlacement:{xOffset:24.54,yOffset:0.03,width:115.92,height:86.94}});
   });
 });

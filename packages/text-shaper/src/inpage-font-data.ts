@@ -43,7 +43,7 @@ export interface InPageLigature {
 /** Isolated Noori alternative at root +4; contextual alternatives at +6 onward are separate. */
 export function readInPageIsolatedGlyph(source: Uint8Array, code: number): {bank: number; slot: number} | undefined {
   assertProfile(source);
-  if (!Number.isInteger(code) || code < 0x81 || code > 0xa7) throw new Error("Invalid InPage letter root");
+  if (!Number.isInteger(code) || code < 0x20 || code > 0xff) throw new Error("Invalid InPage character root");
   const offset = ROOTS_START + code * 20 + 4;
   const bank = source[offset]! - 0x80;
   const slot = source[offset + 1]!;

@@ -70,6 +70,8 @@ export type TextRun = {
 export interface TextStyle {
   fontSize: number;
   lineHeight?: number;
+  paragraphBefore?: number;
+  paragraphAfter?: number;
   latinFontName?: string;
   arabicFontName?: string;
   bold?: boolean;
@@ -106,6 +108,13 @@ export interface Story {
   paragraphs: Paragraph[];
   startOffset: number;
   endOffset: number;
+  cachedLayout?: {
+    frameId:number;
+    columnWidth:number;
+    contentHeight:number;
+    columns:number;
+    lines:{height:number;baseline:number;width:number;paragraphStart?:boolean;runs:{x:number;width:number;baseline?:number;direction:"ltr"|"rtl";runs:TextRun[]}[]}[];
+  };
 }
 
 export interface PageObjectBounds {
@@ -122,6 +131,7 @@ export interface PageObject {
   bounds: PageObjectBounds;
   storyReference?: number;
   imageName?: string;
+  imagePlacement?: {xOffset:number;yOffset:number;width:number;height:number};
   columnCount?: number;
   rotationDegrees?: number;
   hasBorder?: boolean;

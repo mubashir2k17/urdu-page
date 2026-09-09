@@ -1,9 +1,9 @@
-# SAMPLE2 layout recovery, 2026-09-08
+# SAMPLE2 layout recovery, 2026-09-09
 
 The active target is 90% overlap against `tests/SAMPLE2.pdf`, using the existing
 grayscale ink intersection/union audit at 36 dpi with no registration correction.
-The latest fresh result is **38.5%** (one A3 sheet, source text count 3425, PDF
-text count 2949 versus reference 2138). It does not meet the target. The source
+The latest fresh result is **72.8%** (one A3 sheet, source text count 3432, PDF
+text count 3043 versus reference 2138). It does not meet the target. The source
 INP composition is A4 and the reference export uses an A3 sheet.
 
 ## Implemented source evidence
@@ -41,32 +41,115 @@ INP composition is A4 and the reference export uses an A3 sheet.
   em metric ratio; symbol Arabic families use the root table's contextual forms.
   Unsupported Arabic sequences use an explicitly registered Unicode fallback.
 
-## Limits and next work, ordered by visible impact
+## Validated saved layout
 
-The main heading still wraps; source tracking is applied, but line fitting and
-context across all style changes remain incomplete. Noori baseline placement is
-not yet the source program's full baseline algorithm. Alignment value 4 is still
-treated as right alignment and needs investigation: the reference footer spreads
-individual letters across the frame, suggesting a forced justification mode.
+The first saved frame group follows the style table at 23555. Records are 62
+bytes, start with size 50, and contain content height at +12, column width at
++16 (both /2000 points), and frame ID at +28. Empty ID records delimit stories;
+repeated IDs within a group denote columns. SAMPLE2 has 30 groups / 62 records.
 
-The lower poem's paragraphs carry `e0 7f` two-word references and `e1 7f 02 00`.
-Its blank paragraph/cell separators must not become full-height empty lines.
-Recover the table/poetry structure rather than selecting SAMPLE2 coordinates.
-The data following the style table at offset 23545 also contains serialized
-frame data: the first record includes height 60000, width 100950 and object 53,
-matching that frame's 30 × 50.475 point dimensions. Its structure may provide
-useful line/cell geometry. Offsets here document evidence, not production keys.
+The marker at 27399 is `FFFFFFFF 00000000 00000000`. The line table starts at
+27411 and covers exactly the same 6449 payload bytes as the text/style pair.
+Its 101 records end at 39283. A line stores payload count (+0), height (+4),
+paragraph-start flag (+8), record-body length (+12), baseline (+16), run count
+(+20), and available width (+28). The body length must be `16 + 30*runCount`.
+Each 30-byte run contains kind (+0), source-byte range (+4/+6), and left/right
+extents (+8/+12). These are payload offsets, not Unicode scalar indices.
 
-Other gaps include missing lower specimen text, lam-alef and mark placement in
-symbol Arabic fonts, line wrapping across columns, and exact native borders.
-The current pattern 3 hatch and style 15 dashed ellipse approximate the visible
-effects; they do not yet decode vendor border artwork. Existing synthesized
-arrow geometry also remains approximate.
+Kinds 7f80 / 7f85 carry Latin / Urdu-Arabic text; 7f87 denotes nested cells.
+Children following markers 41429 and 43233 cover the parent cells' 524 bytes.
+Cell expansion requires matching source coverage, widths and heights before
+accepting all replacements. Positive-width cells follow reverse visual order;
+zero-width placeholders carry no child text. This restores both poem columns
+and the final two lines in a single cell. Offsets document evidence only;
+production parsing scans and validates structural relations.
 
-Rotation regression tests cover 90, -90 and 12 degrees and the entire glyph pen.
-Source typography tests cover tracking and tabs; font tests cover signed bounds,
-space resets and overlays; source appearance tests cover fills and polygons.
-All **78 tests** and root typecheck passed before the latest audit.
+The renderer derives frame insets and column gaps from the saved dimensions.
+It preserves line baselines and negative/zero-width tracked runs. Group 7f keys
+8e/8f are paragraph spacing before/after, in /2000 points. Saved line heights
+already include this spacing; the before amount adjusts the first baseline.
+AASAR's first line was 7.2 points too high without this correction.
+
+Native glyph advances remain incomplete. Saved extents constrain each run;
+Noori runs first fit word spaces when this leaves nonnegative space widths,
+otherwise they fit advances uniformly. Latin text uses advance fitting, which
+retains forced letter spacing in the footer and rotated note. A standalone
+Symbol glyph uses its saved cell width to fit the replacement font's size.
+These are explicit approximations, not recovered glyph-by-glyph layout.
+
+## Additional font and drawing evidence
+
+- Punctuation boundaries must be separated from joining segments. A source
+  hamza participates in terminals such as `یءر`, so it must not split that
+  terminal. Advancing isolated punctuation now uses root +4 too.
+- Roots C8/C9/CA select advancing `آ/أ/إ`; the earlier generic map incorrectly
+  labeled C9/CA as marks. Native Arabic slots are 9d/9c/9e (isolated),
+  ab/aa/ac (final). B6/B7/B8 correspond to `ؤ/ئ/ي`. B4 uses Arabic slot bb,
+  an alternate sukun. Glyph atlases verify these assignments against copied
+  AASAAR assets. Lam–alef slots: 9f/a1, a2/a3, a4/a5, a6/a7 for plain,
+  hamza-above, madda, and hamza-below forms.
+- Picture properties in group 05: x/y offset keys 1/2, intrinsic width/height
+  3/4 (/2000 points), and scale 8/9 (/1000). For SAMPLE2 the saved bitmap size
+  becomes 115.92 × 86.94 points. Offsets start inside the three-point border;
+  reference image matrices independently confirm this convention.
+- Frame border strokes occupy the inside of the source bounds. Reference path
+  vertices verify the heading's outer rectangle at the source bounds and its
+  three-point border. Style 17 uses diagonal spans; style 15 uses diamonds
+  around the ellipse. Repeat dimensions remain approximations, bounded to avoid
+  excessive geometry on malformed or extreme widths.
+- Optional `fonts/inpage-local/WineSymbol.ttf` is copied from the isolated Wine
+  runtime's `share/wine/fonts/symbol.ttf`. HarfBuzz maps U+F0AC to its left-arrow
+  glyph; logical ActualText stays U+2190. The font's cell size comes from the
+  saved source width. Mac `Symbol.ttf` remains the alternate local fallback.
+  Arial variants and Symbol assets are local ignored copies, not repo assets.
+
+## Verification and remaining work
+
+Milestones after commit 09a544f (38.5%): saved lines 58.0%; nested cells 60.3%;
+punctuation/hamza 63.1%; advancing punctuation 64.5%; image inset 65.6%; inner
+border geometry 68.1%; patterned borders 69.2%; Wine Symbol 70.1%; Arabic forms
+70.3%; paragraph spacing 70.7%; Noori word spacing with Latin guard **72.8%**.
+The metric and resolution have not changed. A trial using unrestricted native
+Noori advances fell to 66.3% and was removed: caches remain necessary.
+
+Full suite: **84/84 passed**, including the Latin-spacing regression. Root
+typecheck and the final focused audit passed.
+Fresh PDF and raster artifacts live under ignored `tmp/pdfs/inpage-font-audit/`.
+The final visually checked preview is `tmp/pdfs/sample2-checkpoint.png`. The Noto reference tests still pass; no changes
+to the audit threshold or reference inputs have been made.
+
+
+Regional diagnostics at this checkpoint (same pixels, no registration):
+
+| Region | Ink overlap |
+|---|---:|
+| Black panel | 98.3% |
+| Table | 88.8% |
+| Top poem | 86.3% |
+| Lower poem | 85.5% |
+| Labels / arrows | 83.2% |
+| Heading | 69.4% |
+| Columns | 54.4% |
+| Font specimens | 54.9% |
+| Arabic body | 44.1% |
+
+Regions are diagnostic selections only; the acceptance score remains the whole
+page. The specimen, column, heading and Arabic regions contribute the largest
+remaining ink differences. Raw regional results are in the ignored audit folder.
+
+The target is still unmet. Highest-impact remaining work:
+
+1. Restore Sindhi / Pashto text (prefixes 05 / 07, cache kinds 7f86 / 7f8b).
+   The original executable's Sindhi routine is 0x415880. A four-byte-per-code
+   contextual slot table starts at virtual address 0x501200, used at 0x415b55
+   and 0x415b8f. Codes 81–dd are the bounded table; bytes beyond are other data.
+   Forms are isolated/final/medial/initial, with two native font banks e6/e7.
+   A local dump is `tmp/reverse-engineering/sindhi-forms.bin`. Unicode mapping
+   is not yet verified; do not simply reuse Urdu's alphabet numbering.
+2. Correct Arabic mark positioning and remaining joining/spacing differences.
+3. Recover exact Noori word-boundary spacing and missing original glyph slots.
+   The current saved-width fitting improves layout but is not exact shaping.
+4. Refine hatch, border pattern phase, and outline thickness.
 
 ## Local native test runtime
 

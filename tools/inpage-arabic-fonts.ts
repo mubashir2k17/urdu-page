@@ -36,12 +36,23 @@ export function loadArabicFontFamilies(directory: string, data: Uint8Array): {fo
     };
     for (const [encoded,char] of Object.entries(CHAR_MAP_URDU)) {
       const code = Number(encoded);
-      const isolated = glyphAt(code,6);
+      const isolated = glyphAt(code,6) ?? glyphAt(code,4);
       if (!isolated || forms.has(char)) continue;
       const final = glyphAt(code,8) ?? glyphAt(code,10);
       const medial = glyphAt(code,12);
       const initial = glyphAt(code,16);
       forms.set(char,{isolated,...(final ? {final}:{}),...(medial ? {medial}:{}),...(initial ? {initial}:{}),mark:/\p{M}/u.test(char)});
+    }
+    // The base Arabic bank carries dedicated lam–alef forms; these share
+    // symbol slots across the imported families (isolated then final).
+    for(const [text,slot] of [["لا",0x9f],["لأ",0xa2],["لآ",0xa4],["لإ",0xa6]] as const) {
+      const face=faces[0]!;
+      const at=(slot:number)=>{
+        const glyph=face.font.glyphForCodePoint(0xf000+slot);
+        return {id:glyph.id,fontId:face.face.id,advance:glyph.advanceWidth*1000/face.font.unitsPerEm};
+      };
+      const isolated=at(slot),final=at(slot===0x9f?0xa1:slot+1);
+      if(isolated.id && final.id)forms.set(text,{isolated,final});
     }
     for (const [arabic,urdu] of [["ك","ک"],["ي","ی"],["ه","ہ"],["ة","ۃ"]]) {
       const form=forms.get(urdu!);

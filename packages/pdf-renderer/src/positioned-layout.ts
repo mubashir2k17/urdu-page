@@ -24,8 +24,8 @@ export async function renderPositionedPage(
       continue;
     }
     if (object.kind === "line") {
-      backend.drawLine(x, outputHeight - top, x + width, outputHeight - top - height);
-      if (Math.abs(width) < 1 && x > 0) {
+      backend.drawLine(x, outputHeight - top, x + width, outputHeight - top - height,object.borderWidth);
+      if (!document.stories.some(story=>story.cachedLayout) && Math.abs(width) < 1 && x > 0) {
         const arrowY = outputHeight - top - height;
         backend.drawLine(x - 30, arrowY, x, arrowY);
         backend.drawLine(x - 30, arrowY, x - 22, arrowY + 7);

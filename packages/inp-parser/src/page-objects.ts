@@ -37,6 +37,21 @@ export function extractPageObjects(data: Uint8Array): PageObject[] {
     const rotation = properties.get(0x1a);
     const columnCount = findColumnCount(payload);
     const appearance = readAppearance(payload);
+    if(imageName) {
+      const imageValues=new Map<number,number>();
+      const imageView=new DataView(payload.buffer,payload.byteOffset,payload.byteLength);
+      for(let p=0;p+6<=payload.length;p++) {
+        if(payload[p+1]!==5)continue;
+        const key=payload[p]!;
+        if([1,2,3,4].includes(key))imageValues.set(key,imageView.getInt32(p+2,true));
+        if(key===8 || key===9)imageValues.set(key,imageView.getUint16(p+2,true));
+      }
+      if([1,2,3,4,8,9].every(key=>imageValues.has(key)) && imageValues.get(3)!>0 && imageValues.get(4)!>0) {
+        appearance.imagePlacement={xOffset:imageValues.get(1)!/2000,yOffset:imageValues.get(2)!/2000,
+          width:imageValues.get(3)!/2000*imageValues.get(8)!/1000,
+          height:imageValues.get(4)!/2000*imageValues.get(9)!/1000};
+      }
+    }
     objects.push({
       kind: mapKind(rawKind, imageName),
       id: view.getUint16(2, true),

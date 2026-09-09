@@ -176,7 +176,7 @@ export class PdfLibBackend implements PdfBackend {
     width: number,
     height: number,
     rotationDegrees = 0,
-    appearance:Pick<PageObject,"shape"|"borderWidth"|"borderStyle"> = {},
+    appearance:Pick<PageObject,"shape"|"borderWidth"|"borderStyle"|"imagePlacement"> = {},
   ): Promise<void> {
     if (!this.currentPage) throw new Error("No page added");
     let embedded = this.images.get(image.name);
@@ -195,27 +195,57 @@ export class PdfLibBackend implements PdfBackend {
         appendBezierCurve(cx-rx,cy-ry*k,cx-rx*k,cy-ry,cx,cy-ry),
         appendBezierCurve(cx+rx*k,cy-ry,cx+rx,cy-ry*k,cx+rx,cy),closePath(),clipEvenOdd(),endPath());
     }
+    const placement=appearance.imagePlacement;
+    // Saved picture offsets are relative to the inside of the frame border.
+    const imageInset=placement ? appearance.borderWidth ?? 0 : 0;
     this.currentPage.drawImage(embedded, {
-      x,
-      y,
-      width,
-      height,
+      x:x+(placement?.xOffset ?? 0)+imageInset,
+      y:placement ? y+height-placement.yOffset-placement.height-imageInset : y,
+      width:placement?.width ?? width,
+      height:placement?.height ?? height,
       rotate: degrees(rotationDegrees),
     });
     if (appearance.shape === "ellipse") {
       this.currentPage.pushOperators(popGraphicsState());
-      if (appearance.borderStyle) this.currentPage.drawEllipse({x:x+width/2,y:y+height/2,xScale:width/2,yScale:height/2,
-        borderColor:rgb(0,0,0),borderWidth:appearance.borderWidth ?? 1,
-        ...(appearance.borderStyle === 15 ? {borderDashArray:[3,3]} : {})});
+      const thickness=Math.max(0,Math.min(appearance.borderWidth ?? 1,width,height));
+      if (appearance.borderStyle === 15 && thickness>0 && thickness<Math.min(width,height)) {
+        const rx=(width-thickness)/2,ry=(height-thickness)/2,cx=x+width/2,cy=y+height/2;
+        const samples=Array.from({length:721},(_,i)=>{
+          const angle=Math.PI/2+i*Math.PI/360;
+          return {angle,x:cx+rx*Math.cos(angle),y:cy+ry*Math.sin(angle),distance:0};
+        });
+        for(let i=1;i<samples.length;i++)samples[i]!.distance=samples[i-1]!.distance+
+          Math.hypot(samples[i]!.x-samples[i-1]!.x,samples[i]!.y-samples[i-1]!.y);
+        const perimeter=samples.at(-1)!.distance;
+        const count=Math.min(4096,Math.max(4,Math.round(perimeter/(2.05*thickness))));
+        let sample=1;
+        this.currentPage.pushOperators(pushGraphicsState(),setFillingRgbColor(0,0,0));
+        for(let i=0;i<count;i++) {
+          const distance=i*perimeter/count;
+          while(samples[sample]!.distance<distance)sample++;
+          const left=samples[sample-1]!,right=samples[sample]!;
+          const ratio=(distance-left.distance)/(right.distance-left.distance);
+          const angle=left.angle+(right.angle-left.angle)*ratio;
+          const px=cx+rx*Math.cos(angle),py=cy+ry*Math.sin(angle);
+          const tangentX=-rx*Math.sin(angle),tangentY=ry*Math.cos(angle),norm=Math.hypot(tangentX,tangentY);
+          const dx=tangentX/norm*thickness,dy=tangentY/norm*thickness;
+          this.currentPage.pushOperators(moveTo(px+dx,py+dy),lineTo(px-dy/2,py+dx/2),
+            lineTo(px-dx,py-dy),lineTo(px+dy/2,py-dx/2),closePath(),fill());
+        }
+        this.currentPage.pushOperators(popGraphicsState());
+      } else if (appearance.borderStyle && thickness>0) this.currentPage.drawEllipse({x:x+width/2,y:y+height/2,
+        xScale:Math.max(0.001,(width-thickness)/2),yScale:Math.max(0.001,(height-thickness)/2),
+        borderColor:rgb(0,0,0),borderWidth:thickness,
+      });
     }
   }
 
-  drawLine(x1: number, y1: number, x2: number, y2: number): void {
+  drawLine(x1: number, y1: number, x2: number, y2: number,thickness=0.6): void {
     if (!this.currentPage) throw new Error("No page added");
     this.currentPage.drawLine({
       start: { x: x1, y: y1 },
       end: { x: x2, y: y2 },
-      thickness: 0.6,
+      thickness,
       color: rgb(0, 0, 0),
     });
   }
@@ -237,7 +267,7 @@ export class PdfLibBackend implements PdfBackend {
     const {xPoints:x,yPoints:top,widthPoints:width,heightPoints:height} = object.bounds;
     const shade = object.fillColorIndex === 2 ? 0 : object.fillColorIndex === 3 ? 0.5 : 1;
     const shouldFill = object.fillColorIndex !== undefined && object.fillColorIndex !== 0;
-    const borderWidth = object.hasBorder ? object.borderWidth ?? 1 : 0;
+    const borderWidth = object.hasBorder ? Math.max(0,Math.min(object.borderWidth ?? 1,width,height)) : 0;
     if (object.polygon?.length) {
       const first=object.polygon[0]!;
       this.currentPage.pushOperators(pushGraphicsState(),setFillingRgbColor(shade,shade,shade),
@@ -245,7 +275,8 @@ export class PdfLibBackend implements PdfBackend {
         ...object.polygon.slice(1).map(point=>lineTo(point.x,pageHeight-point.y)),closePath(),
         shouldFill && borderWidth ? fillAndStroke() : shouldFill ? fill() : stroke(),popGraphicsState());
     } else if (shouldFill || borderWidth) {
-      this.currentPage.drawRectangle({x,y:pageHeight-top-height,width,height,borderWidth,
+      this.currentPage.drawRectangle({x:x+borderWidth/2,y:pageHeight-top-height+borderWidth/2,
+        width:width-borderWidth,height:height-borderWidth,borderWidth,
         ...(borderWidth ? {borderColor:rgb(0,0,0)} : {}),
         ...(shouldFill ? {color:rgb(shade,shade,shade)} : {})});
       if (object.fillPattern === 3) {
@@ -253,6 +284,31 @@ export class PdfLibBackend implements PdfBackend {
         for (let py=top+inset+2;py<top+height-inset-2;py+=6) {
           for (let px=x+inset+2;px<x+width-inset-2;px+=7) this.currentPage.drawLine({
             start:{x:px,y:pageHeight-py},end:{x:px+2,y:pageHeight-py-2},thickness:0.35,color:rgb(0,0,0)});
+        }
+      }
+      if (object.borderStyle === 17 && borderWidth > 0) {
+        // Native diagonal border: double-thickness black spans separated by narrow gaps,
+        // expressed relative to the selected border thickness.
+        const edges = [
+          {x,y:top,dx:1,dy:0,length:width},
+          {x:x+width,y:top,dx:0,dy:1,length:height},
+          {x:x+width,y:top+height,dx:-1,dy:0,length:width},
+          {x,y:top+height,dx:0,dy:-1,length:height},
+        ];
+        for(const edge of edges) {
+          const point=(along:number,inward:number)=>({x:edge.x+along*edge.dx-inward*edge.dy,
+            y:pageHeight-edge.y-along*edge.dy-inward*edge.dx});
+          const corners=[point(0,0),point(edge.length,0),point(edge.length,borderWidth),point(0,borderWidth)];
+          this.currentPage.pushOperators(pushGraphicsState(),moveTo(corners[0]!.x,corners[0]!.y),
+            ...corners.slice(1).map(p=>lineTo(p.x,p.y)),closePath(),clipEvenOdd(),endPath(),
+            setFillingRgbColor(1,1,1),moveTo(corners[0]!.x,corners[0]!.y),
+            ...corners.slice(1).map(p=>lineTo(p.x,p.y)),closePath(),fill(),setFillingRgbColor(0,0,0));
+          for(let along=-1.8*borderWidth;along<edge.length+borderWidth;along+=Math.max(2.3*borderWidth,edge.length/4096)) {
+            const points=[point(along,0),point(along+2*borderWidth,0),point(along+borderWidth,borderWidth),point(along-borderWidth,borderWidth)];
+            this.currentPage.pushOperators(moveTo(points[0]!.x,points[0]!.y),
+              ...points.slice(1).map(p=>lineTo(p.x,p.y)),closePath(),fill());
+          }
+          this.currentPage.pushOperators(popGraphicsState());
         }
       }
     }

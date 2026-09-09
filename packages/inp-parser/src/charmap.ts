@@ -73,7 +73,11 @@ export const CHAR_MAP_URDU: Record<number, string> = {
   0xb0: "\u0656", // ٖ Subscript Alef (khari zer)
   0xb1: "\u0652", // ْ Sukun (jazm)
   0xb3: "\u0653", // ٓ Maddah Above
+  0xb4: "\u0652", // ْ Alternate Sukun; native Arabic slot BB
   0xb5: "\u064C", // ٌ Dammatan
+  0xb6: "\u0624", // ؤ Waw with Hamza Above
+  0xb7: "\u0626", // ئ Yeh with Hamza Above
+  0xb8: "\u064A", // ي Arabic Yeh
   0xbd: "\u0670", // ٰ Superscript Alef (khari zabar)
   0xbe: "\u0657", // ٗ Inverted Damma
   0xbf: "\u0654", // ٔ Hamza Above (primary)
@@ -84,8 +88,10 @@ export const CHAR_MAP_URDU: Record<number, string> = {
   0xc2: "\u0654", // Hamza Above
   0xc3: "\u0655", // Hamza Below
   0xc6: "\u0651", // Shadda
-  0xc9: "\u0670", // Superscript Alef
-  0xca: "\u0656", // Subscript Alef
+  // Native roots C8–CA select advancing Alef forms, not combining marks.
+  0xc8: "\u0622", // آ Alef with Madda Above
+  0xc9: "\u0623", // أ Alef with Hamza Above
+  0xca: "\u0625", // إ Alef with Hamza Below
   0xcc: "\u0614", // Sign Takhallus
   0xcd: "\u060C", // Arabic Comma
 

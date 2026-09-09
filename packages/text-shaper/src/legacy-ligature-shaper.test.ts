@@ -9,6 +9,16 @@ const input: ShapeInput = {
 const entry = { text: "میں", fontId: "bank", glyphId: 17, advance: 1400, unitsPerEm: 2000 };
 
 describe("legacy whole-word shaping", () => {
+  it("keeps punctuation outside joining words and retains joining hamza terminals", () => {
+    const shaper = new LegacyLigatureTextShaper([
+      entry, {...entry, text:"و",glyphId:18}, {...entry,text:"یءر",glyphId:19},
+    ],true);
+    const run=shaper.shape({...input,text:"میں، ویءر"});
+    expect(run.logicalText).toBe("میں، ویءر");
+    expect(run.glyphs.filter(glyph=>glyph.fontId==="bank").map(glyph=>[glyph.id,glyph.cluster]))
+      .toEqual([[19,6],[18,5],[17,0]]);
+    expect(run.glyphs.some(glyph=>glyph.cluster===3 && !glyph.fontId)).toBe(true);
+  });
   it("kerns joining segments using signed Noori bounds in reading order", () => {
     const shaper = new LegacyLigatureTextShaper([
       {text: "ا", fontId: "bank1", glyphId: 1, advance: 180, unitsPerEm: 1000,

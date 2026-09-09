@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import fontkit from "@pdf-lib/fontkit";
-import { decodeInPageFontData, readInPageBankMetrics, readInPageIsolatedGlyph, LegacyLigatureTextShaper, type LegacyLigatureGlyph } from "@inpage/text-shaper";
+import { decodeInPageFontData, readInPageBankMetrics, readInPageIsolatedGlyph, HarfBuzzTextShaper, LegacyLigatureTextShaper, type LegacyLigatureGlyph } from "@inpage/text-shaper";
 import type { RenderTypography } from "@inpage/pdf-renderer";
 import { CHAR_MAP_URDU } from "../packages/inp-parser/src/charmap.js";
 import { loadArabicFontFamilies } from "./inpage-arabic-fonts.js";
@@ -86,7 +86,7 @@ export function loadInPageTypography(directory: string): RenderTypography {
     candidates.set(text, value);
   }
   for (const text of ambiguous) candidates.delete(text);
-  for (let code = 0x81; code <= 0xa7; code++) {
+  for (let code = 0x20; code <= 0xff; code++) {
     const component = readInPageIsolatedGlyph(data, code);
     const text = CHAR_MAP_URDU[code];
     if (!component || !text || candidates.has(text)) continue;
@@ -113,15 +113,25 @@ export function loadInPageTypography(directory: string): RenderTypography {
     if ("glyphForCodePoint" in metrics) cellScales.set(font.id,metrics.unitsPerEm/(metrics.ascent-metrics.descent));
   }
   const arabic = loadArabicFontFamilies(directory,data);
+  const wineSymbol=existsSync(join(directory,"WineSymbol.ttf"));
+  const symbolPath=join(directory,wineSymbol?"WineSymbol.ttf":"Symbol.ttf");
+  const symbol=existsSync(symbolPath)?{id:"local-symbol",bytes:readFileSync(symbolPath)}:undefined;
+  if(symbol){const metrics=fontkit.create(symbol.bytes);if("glyphForCodePoint" in metrics)cellScales.set(symbol.id,metrics.unitsPerEm/(metrics.ascent-metrics.descent));}
   const noori = new LegacyLigatureTextShaper(entries,true);
+  const unicodeShaper=new HarfBuzzTextShaper();
   return {
     shaper: {shape(input) {
+      if(wineSymbol && input.font.id===symbol?.id) {
+        const run=unicodeShaper.shape({...input,text:input.text.replaceAll("←","\uf0ac")});
+        return {...run,logicalText:input.text,fontSizeScale:cellScales.get(input.font.id) ?? 1};
+      }
       const run=(arabic.shapers.get(input.font.id) ?? noori).shape(input);
       const fontSizeScale=cellScales.get(input.font.id);
       return fontSizeScale ? {...run,fontSizeScale} : run;
     }},
-    fonts: [...fonts.filter(({ id }) => usedFonts.has(id)), ...latin.values(), ...arabic.fonts],
+    fonts: [...fonts.filter(({ id }) => usedFonts.has(id)), ...latin.values(), ...arabic.fonts,...(symbol?[symbol]:[])],
     resolveFont(style, direction) {
+      if(direction==="ltr" && style.latinFontName==="Symbol")return symbol;
       if (direction === "rtl" && style.arabicFontName) return arabic.names.get(style.arabicFontName);
       if (direction !== "ltr" || style.latinFontName !== "Arial") return undefined;
       return latin.get(`${style.bold ? " Bold" : ""}${style.italic ? " Italic" : ""}`);

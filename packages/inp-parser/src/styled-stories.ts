@@ -1,6 +1,7 @@
 import type { Paragraph, Story, TextStyle } from "@inpage/document-model";
 import type { Mode } from "./charmap.js";
 import { decodeLegacy } from "./legacy-decode.js";
+import {readCachedLayout} from "./cached-layout.js";
 
 interface SourceParagraph { offset: number; length: number; story: number; position: number }
 interface StyleSpan { start: number; end: number; data: Uint8Array }
@@ -44,7 +45,7 @@ export function decodeStyledStories(data: Uint8Array, mode: Mode): {stories: Sto
           const span = spans[spanIndex]!;
           const end = Math.min(entry.position + entry.length, span.end);
           const bytes = data.subarray(entry.offset + position - entry.position, entry.offset + end - entry.position);
-          const decoded = decodeLegacy(bytes, {mode});
+          const decoded = decodeStyledBytes(bytes,mode,styles[spanIndex]!);
           for (const paragraph of decoded.paragraphs) {
             for (const run of paragraph.runs) runs.push({...run, style: styles[spanIndex]!});
           }
@@ -56,10 +57,45 @@ export function decodeStyledStories(data: Uint8Array, mode: Mode): {stories: Sto
         story.endOffset = paragraph.endOffset;
         paragraphs.push(paragraph);
       }
+      const cache=readCachedLayout(data,p,covered);
+      if(cache && cache.frames.length===stories.length) {
+        const payload=new Uint8Array(covered);
+        for(const entry of source)payload.set(data.subarray(entry.offset,entry.offset+entry.length),entry.position);
+        for(const story of stories) {
+          const entries=source.filter(entry=>entry.story===story.index);
+          const first=entries[0]!,last=entries.at(-1)!;
+          const frame=cache.frames[story.index]!;
+          const lines=cache.lines.filter(line=>line.start>=first.position && line.end<=last.position+last.length);
+          // Cell records need their nested layout table; retain the existing fallback until decoded.
+          if(lines.some(line=>line.runs.some(run=>run.kind===0x7f87)))continue;
+          story.cachedLayout={frameId:frame.id,columnWidth:frame.columnWidth,contentHeight:frame.contentHeight,columns:frame.columns,
+            lines:lines.map(line=>({height:line.height,baseline:line.baseline,width:line.width,paragraphStart:line.paragraphStart,
+              runs:line.runs.filter(run=>run.kind===0x7f80 || run.kind===0x7f85).map(run=>{
+                const start=line.start+run.start,end=line.start+run.end;
+                const runs:Paragraph["runs"]=[];
+                spans.forEach((span,index)=>{
+                  const left=Math.max(start,span.start),right=Math.min(end,span.end);
+                  if(left>=right)return;
+                  for(const paragraph of decodeStyledBytes(payload.subarray(left,right),mode,styles[index]!).paragraphs)
+                    for(const part of paragraph.runs)runs.push({...part,style:styles[index]!});
+                });
+                return {x:run.x,width:run.width,...(run.baseline===undefined?{}:{baseline:run.baseline}),
+                  direction:run.kind===0x7f85?"rtl" as const:"ltr" as const,runs};
+              })}))};
+        }
+      }
       return {stories, paragraphs};
     }
   }
   return undefined;
+}
+
+function decodeStyledBytes(bytes:Uint8Array,mode:Mode,style:TextStyle):ReturnType<typeof decodeLegacy> {
+  if(style.latinFontName==="Symbol" && bytes.includes(0xac) && !bytes.includes(4)) {
+    const text=[...bytes].map(byte=>byte===0xac?"←":byte>=32&&byte<127?String.fromCharCode(byte):"").join("");
+    return {paragraphs:[{index:0,startOffset:0,endOffset:bytes.length,runs:[{kind:"text",text}]}],pageBreakBefore:new Set(),diagnostics:[]};
+  }
+  return decodeLegacy(bytes,{mode});
 }
 
 function readTextTable(data: Uint8Array, view: DataView, start: number, end: number, expected: number): SourceParagraph[] | undefined {
@@ -149,6 +185,8 @@ function readStyle(data: Uint8Array, defaults: TextStyle, names: string[]): Text
       if (key === 12) style.outline = value === 1;
       if (key === 0x80) style.alignment = ({0: "left", 2: "center", 3: "justify", 4: "right"} as const)[value as 0];
       if (key === 0x8a && value > 0 && value < 4_000_000) style.lineHeight = value / 2000;
+      if (key === 0x8e && value >= 0 && value < 4_000_000) style.paragraphBefore = value / 2000;
+      if (key === 0x8f && value >= 0 && value < 4_000_000) style.paragraphAfter = value / 2000;
     }
     p += 2 + length;
   }

@@ -1,16 +1,16 @@
 # Handoff — InPage `.inp` → PDF Converter
 
-**Prepared:** 2026-09-07
+**Prepared:** 2026-09-09
 
 **Repository:** `/Users/mubashirsmacbook/projects/inpage-viewer`
 
 **Branch:** `main`
 
-**HEAD:** `eb2a920 feat(pdf): reconstruct source frames`
+**Previous committed milestone:** `09a544f feat(render): recover source styles and drawing`
 
-**Working tree at handoff:** clean before this documentation update
+**This checkpoint:** cached source layout, improved glyph decoding and border geometry
 
-**Last full verification:** 2026-08-31
+**Last full verification:** 2026-09-09
 
 ## Objective
 
@@ -22,28 +22,32 @@ coordinates in the renderer.
 
 ## Current status
 
-### 2026-09-08: SAMPLE2 fidelity goal remains active
+### 2026-09-09: SAMPLE2 fidelity goal remains active
 
-- User target: at least **90%** in the existing 36 dpi ink-overlap audit. Latest
-  fresh result is **38.5%**, one matching A3 sheet; this goal is not complete.
-- User requested order: rotation, font styles, decorative effects, table
-  alignment. A first pass now covers all four. Continue with the **80/20 rule**:
-  fix large visible omissions before rare shaping details.
-- Corrected glyph-pen rotation; decoded the bounded v1 text/style table;
-  recovered font selectors, source sizes/leading, manual tracking and shifts;
-  implemented Noori joining segments and inter-segment spacing; added Arabic
-  symbol families and Arial variants from local font assets.
-- Draws outlined text, horizontal scaling, source polygon frames, transparent
-  and filled panels, ellipse image clipping, approximate hatch/dashed borders,
-  and the table's source tab stops including decimal alignment.
-- Fresh validation: **78/78 tests**, root typecheck, and SAMPLE2 audit. Local
-  font mode is still opt-in; reference PDF is evaluation-only.
-- Largest remaining gaps: main heading wraps; lower poem loses its two-column
-  arrangement; source baseline/paragraph alignment and mixed-script flow;
-  missing lower specimen text; precise decorative borders and Arabic marks.
-- See `docs/research/sample2-layout-recovery.md` for binary evidence, current
-  limitations and the next high-impact investigation. Earlier sections below
-  describe historical milestones and their earlier scores.
+- Target: at least **90%** in the unchanged 36 dpi grayscale ink-overlap audit.
+  Latest fresh result: **72.8%**, one matching A3 sheet. **Not complete.**
+- Continue the requested order (rotation, fonts, effects, tables) and the 80/20
+  approach. First passes cover all four; prioritize missing visible content.
+- Source line/frame caches now supply baselines, run extents, frame insets and
+  column widths. Validated nested cell records restore the two-column poem.
+  The large heading stays on one line; table rows use saved native placement.
+- Negative and zero-width tracked runs retain their visible glyphs. Punctuation
+  no longer forces whole Urdu words onto Noto, and joining hamza terminals work.
+  Noori word-space fitting preserves glyph advances where the saved extent
+  allows it. Latin runs retain letter spacing. This fitting is still approximate.
+- Corrected advancing Arabic Alef codes C8–CA, added native lam–alef forms,
+  recovered paragraph-before/after spacing, and extended Noori punctuation.
+  Local profile enables 18065 mappings, including 1431 overlays, in 89 banks.
+- Border strokes are inside source bounds. Image placement uses saved scale and
+  offsets from the inner border. Styles 15/17 approximate diamond and diagonal
+  border patterns. Optional Wine Symbol handles the native callout arrows.
+- Verification: full suite **84/84**, root typecheck, fresh audit and visual
+  inspection. Local font mode remains opt-in; reference PDFs are evaluation-only.
+- Largest remaining gaps: Sindhi/Pashto source prefixes 05/07 are not decoded;
+  Arabic marks and contextual spacing; remaining Noori metric differences;
+  exact hatch/border artwork and outline thickness.
+- Source evidence and next investigation: `docs/research/sample2-layout-recovery.md`.
+  Earlier sections below are historical milestones, not current limitations.
 
 
 ### Continuation: source widths and overlay glyphs
@@ -156,7 +160,7 @@ Sample 2 uses A4 source setup but was exported on an A3 sheet with the source
 composition anchored at the upper-left. Do not overwrite source setup to make
 it appear that the INP file stores A3 media.
 
-## Known gaps
+## Historical gaps at the original geometry milestone
 
 1. Frame fills, pattern brushes, stroke styles, and polygon/slanted boundaries
    are not decoded. The heading band, black feature box, poem frame, and table
@@ -178,7 +182,7 @@ it appear that the INP file stores A3 media.
 9. Workspace builds are blocked by package `rootDir` settings interacting with
    root TypeScript path aliases. Root typecheck is the current reliable gate.
 
-## Next goals
+## Earlier implementation goals
 
 ### P0 — Decode Sample 2 visual frame styling
 
@@ -243,7 +247,7 @@ Acceptance criteria:
 - Add CI gates for tests, root typecheck, focused Sample 2 audit, and package
   builds once repaired.
 
-## Recommended next task
+## Original next-task plan (historical)
 
 Begin with P0 and use the paired Sample 2 files as controlled evidence:
 

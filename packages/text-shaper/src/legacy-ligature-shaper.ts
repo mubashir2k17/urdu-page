@@ -39,13 +39,15 @@ export class LegacyLigatureTextShaper implements TextShaper {
     const fallback = this.fallback.shape(input);
     if (input.direction !== "rtl" || input.script !== "arab") return fallback;
     // Whitespace boundaries preserve entire words and combining sequences.
-    const tokens = [...input.text.matchAll(/\S+|\s+/gu)].flatMap(match => {
+    const boundaries = this.joiningSegments ? /[\p{L}\p{M}]+|\s+|[^\p{L}\p{M}\s]+/gu : /\S+|\s+/gu;
+    const tokens = [...input.text.matchAll(boundaries)].flatMap(match => {
       const text = match[0];
       if (!this.joiningSegments || this.words.has(text) || !/^[\u0621-\u06d3]+$/u.test(text)) {
         return [{text, index:match.index}];
       }
       // These letters terminate a joining segment. Preserve every other joining sequence intact.
-      const parts = text.match(/[^اآأإدڈذرڑزژوؤءںےۃ]*[اآأإدڈذرڑزژوؤءںےۃ]\p{M}*|[^اآأإدڈذرڑزژوؤءںےۃ]+/gu) ?? [text];
+      // The legacy hamza code also participates in joining terminals (e.g. یءر).
+      const parts = text.match(/[^اآأإدڈذرڑزژوؤںےۃ]*[اآأإدڈذرڑزژوؤںےۃ]\p{M}*|[^اآأإدڈذرڑزژوؤںےۃ]+/gu) ?? [text];
       let index = match.index;
       return parts.map(part => {const token = {text:part,index}; index += part.length; return token;});
     });

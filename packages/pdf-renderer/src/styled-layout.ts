@@ -8,7 +8,35 @@ interface Token {text: string; style: TextStyle; run: ShapedRun; width: number; 
   pieces: {run:ShapedRun;style:TextStyle}[]}
 
 /** Lay out source-sized runs; unavailable styles retain the existing fallback shaper. */
-export function drawStyledStory(story: Story, object: PageObject, backend: PdfBackend, shape: Shape, pageHeight: number): void {
+export function drawStyledStory(story: Story, object: PageObject, backend: PdfBackend, shape: Shape, pageHeight: number,
+  saved?:{baseline:number}): void {
+  if(story.cachedLayout && story.cachedLayout.frameId===object.id && !saved) {
+    const cache=story.cachedLayout;
+    const insetX=cache.columns===1?Math.max(0,(object.bounds.widthPoints-cache.columnWidth)/2):0;
+    const insetY=Math.max(0,(object.bounds.heightPoints-cache.contentHeight)/2);
+    const gap=cache.columns>1?(object.bounds.widthPoints-cache.columnWidth*cache.columns)/(cache.columns-1):0;
+    const angle=(object.rotationDegrees ?? 0)*Math.PI/180;
+    let column=0,top=0;
+    for(const line of cache.lines) {
+      if(top+line.height>cache.contentHeight+0.01 && top>0 && cache.columns>1){column++;top=0;}
+      if(column>=cache.columns)break;
+      const columnX=(cache.columns-1-column)*(cache.columnWidth+gap)+insetX;
+      for(const run of line.runs) {
+        if(!run.runs.length)continue;
+        const localX=columnX+run.x,localTop=top+insetY;
+        const group:Story={index:story.index,startOffset:0,endOffset:0,
+          paragraphs:[{index:0,startOffset:0,endOffset:0,runs:run.runs}]};
+        const frame:PageObject={...object,columnCount:1,bounds:{
+          xPoints:object.bounds.xPoints+localX*Math.cos(angle)+localTop*Math.sin(angle),
+          yPoints:object.bounds.yPoints-localX*Math.sin(angle)+localTop*Math.cos(angle),
+          widthPoints:run.width,heightPoints:line.height}};
+        const before=line.paragraphStart ? run.runs[0]?.style?.paragraphBefore ?? 0 : 0;
+        drawStyledStory(group,frame,backend,shape,pageHeight,{baseline:(run.baseline ?? line.baseline)+before});
+      }
+      top+=line.height;
+    }
+    return;
+  }
   const {xPoints:x, yPoints:top, widthPoints:width, heightPoints:height} = object.bounds;
   const columns = object.columnCount ?? 1;
   const gap = columns > 1 ? 9 : 0;
@@ -19,6 +47,7 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
   let usedHeight = 0;
   for (const paragraph of story.paragraphs) {
     const baseStyle = paragraph.runs.find(run => run.style)?.style ?? {fontSize:12};
+    if(!saved)usedHeight+=baseStyle.paragraphBefore ?? 0;
     if (baseStyle.tabStops?.length && paragraph.runs.some(run=>run.text.includes("\t"))) {
       const cells:{text:string;style:TextStyle}[][] = [[]];
       for (const source of paragraph.runs) {
@@ -99,7 +128,7 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
     let line: Token[] = [];
     let lineWidth = 0;
     for (const token of tokens) {
-      if (!/^\s+$/.test(token.text) && lineWidth + token.width > columnWidth && line.some(item => /\S/.test(item.text))) {
+      if (!saved && !/^\s+$/.test(token.text) && lineWidth + token.width > columnWidth && line.some(item => /\S/.test(item.text))) {
         while (line.length && /^\s+$/.test(line.at(-1)!.text)) line.pop();
         lines.push(line); line = []; lineWidth = 0;
       }
@@ -114,8 +143,30 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
       if (usedHeight + leading > height + 0.01 && columns > 1) {column++; usedHeight = 0;}
       if (column >= columns) return;
       const alignedColumn = baseDirection === "rtl" ? columns - 1 - column : column;
-      const contentWidth = items.reduce((sum,item) => sum + item.width,0);
-      const align = baseStyle.alignment ?? (baseDirection === "rtl" ? "right" : "left");
+      let contentWidth = items.reduce((sum,item) => sum + item.width,0);
+      if(saved && contentWidth>0 && columnWidth>0) {
+        // Saved runs supply their measured endpoints. Preserve outlines and fit
+        // glyph advances to that source extent while native per-glyph metrics evolve.
+        const ratio=columnWidth/contentWidth;
+        const wordSpaces=items.filter(item=>/^\s+$/.test(item.text));
+        const spaceWidth=wordSpaces.reduce((sum,item)=>sum+item.width,0);
+        const fitSpaces=baseDirection==="rtl" && items.every(item=>item.style.arabicFontName==="Noori Nastaliq") &&
+          spaceWidth>0 && spaceWidth+columnWidth-contentWidth>=0;
+        // A standalone symbol's saved extent is its font cell measurement;
+        // fit the symbol itself when the host provides a metrically different face.
+        const fitSymbol=items.length===1 && items[0]!.style.latinFontName==="Symbol" &&
+          items[0]!.pieces.reduce((sum,piece)=>sum+piece.run.glyphs.length,0)===1;
+        for(const item of items) {
+          const itemRatio=fitSpaces ? (/^\s+$/.test(item.text)?(spaceWidth+columnWidth-contentWidth)/spaceWidth:1) : ratio;
+          item.width*=itemRatio;
+          for(const piece of item.pieces)piece.run=fitSymbol
+            ? {...piece.run,fontSizeScale:(piece.run.fontSizeScale ?? 1)*ratio}
+            : {...piece.run,totalAdvance:piece.run.totalAdvance*itemRatio,
+              glyphs:piece.run.glyphs.map(glyph=>({...glyph,xAdvance:glyph.xAdvance*itemRatio}))};
+        }
+        contentWidth=columnWidth;
+      }
+      const align = saved ? "left" : baseStyle.alignment ?? (baseDirection === "rtl" ? "right" : "left");
       const spaces = items.filter(item => /^\s+$/.test(item.text)).length;
       const extraSpace = align === "justify" && index < lines.length - 1 && spaces
         ? Math.max(0,columnWidth-contentWidth)/spaces : 0;
@@ -125,7 +176,7 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
       const ordered = baseDirection === "rtl" ? [...items].reverse() : items;
       for (const item of ordered) {
         for (const piece of item.pieces) {
-          const localY = -usedHeight - fontSize - (piece.style.baselineShift ?? 0);
+          const localY = -usedHeight - (saved?.baseline ?? fontSize) - (piece.style.baselineShift ?? 0);
           backend.drawShapedRun(piece.run, x + pen * Math.cos(radians) - localY * Math.sin(radians),
             pageHeight - top + pen * Math.sin(radians) + localY * Math.cos(radians),piece.style.fontSize,rotation,piece.style);
           pen += backend.measureShapedRun(piece.run,piece.style.fontSize)*(piece.style.horizontalScale ?? 1);
@@ -134,5 +185,6 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
       }
       usedHeight += leading;
     }
+    if(!saved)usedHeight+=baseStyle.paragraphAfter ?? 0;
   }
 }
