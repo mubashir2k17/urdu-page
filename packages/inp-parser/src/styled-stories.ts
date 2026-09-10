@@ -47,7 +47,7 @@ export function decodeStyledStories(data: Uint8Array, mode: Mode): {stories: Sto
           const bytes = data.subarray(entry.offset + position - entry.position, entry.offset + end - entry.position);
           const decoded = decodeStyledBytes(bytes,mode,styles[spanIndex]!);
           for (const paragraph of decoded.paragraphs) {
-            for (const run of paragraph.runs) runs.push({...run, style: styles[spanIndex]!});
+            for (const run of paragraph.runs) runs.push({...run, style: {...styles[spanIndex]!,...run.style}});
           }
           position = end;
         }
@@ -70,17 +70,17 @@ export function decodeStyledStories(data: Uint8Array, mode: Mode): {stories: Sto
           if(lines.some(line=>line.runs.some(run=>run.kind===0x7f87)))continue;
           story.cachedLayout={frameId:frame.id,columnWidth:frame.columnWidth,contentHeight:frame.contentHeight,columns:frame.columns,
             lines:lines.map(line=>({height:line.height,baseline:line.baseline,width:line.width,paragraphStart:line.paragraphStart,
-              runs:line.runs.filter(run=>run.kind===0x7f80 || run.kind===0x7f85).map(run=>{
+              runs:line.runs.filter(run=>run.kind===0x7f80 || run.kind===0x7f85 || run.kind===0x7f86).map(run=>{
                 const start=line.start+run.start,end=line.start+run.end;
                 const runs:Paragraph["runs"]=[];
                 spans.forEach((span,index)=>{
                   const left=Math.max(start,span.start),right=Math.min(end,span.end);
                   if(left>=right)return;
                   for(const paragraph of decodeStyledBytes(payload.subarray(left,right),mode,styles[index]!).paragraphs)
-                    for(const part of paragraph.runs)runs.push({...part,style:styles[index]!});
+                    for(const part of paragraph.runs)runs.push({...part,style:{...styles[index]!,...part.style}});
                 });
                 return {x:run.x,width:run.width,...(run.baseline===undefined?{}:{baseline:run.baseline}),
-                  direction:run.kind===0x7f85?"rtl" as const:"ltr" as const,runs};
+                  direction:run.kind!==0x7f80?"rtl" as const:"ltr" as const,runs};
               })}))};
         }
       }
@@ -95,7 +95,33 @@ function decodeStyledBytes(bytes:Uint8Array,mode:Mode,style:TextStyle):ReturnTyp
     const text=[...bytes].map(byte=>byte===0xac?"←":byte>=32&&byte<127?String.fromCharCode(byte):"").join("");
     return {paragraphs:[{index:0,startOffset:0,endOffset:bytes.length,runs:[{kind:"text",text}]}],pageBreakBefore:new Set(),diagnostics:[]};
   }
-  return decodeLegacy(bytes,{mode});
+  // Character-set transitions can occur inside a style span (for example a
+  // Sindhi paragraph followed by an Urdu annotation). Preserve both faces.
+  if (!bytes.includes(5)) return decodeLegacy(bytes,{mode});
+  const result:ReturnType<typeof decodeLegacy>={paragraphs:[],pageBreakBefore:new Set(),diagnostics:[]};
+  let start=0,charset=4;
+  const append=(end:number)=>{
+    if(end===start)return;
+    const decoded=decodeLegacy(bytes.subarray(start,end),{mode});
+    for(const paragraph of decoded.paragraphs) {
+      const target=result.paragraphs.at(-1) ?? {index:0,runs:[],startOffset:0,endOffset:end};
+      if(!result.paragraphs.length)result.paragraphs.push(target);
+      for(const run of paragraph.runs)target.runs.push({...run,
+        ...(charset===5?{style:{...style,arabicFontName:"ZoharSindhi"}}:{})});
+      target.endOffset=end;
+    }
+    result.diagnostics.push(...decoded.diagnostics.map(d=>({...d,offset:(d.offset ?? 0)+start})));
+    start=end;
+  };
+  for(let index=0;index<bytes.length;index++) {
+    const prefix=bytes[index];
+    if((prefix===4 || prefix===5 || prefix===7) && index+1<bytes.length) {
+      if(prefix!==charset){append(index);charset=prefix;}
+      index++;
+    }
+  }
+  append(bytes.length);
+  return result;
 }
 
 function readTextTable(data: Uint8Array, view: DataView, start: number, end: number, expected: number): SourceParagraph[] | undefined {

@@ -2,6 +2,7 @@ import type { Diagnostic } from "@inpage/diagnostics";
 import type { Paragraph } from "@inpage/document-model";
 import type { Mode } from "./charmap.js";
 import { lookupChar, lookupComposite } from "./charmap.js";
+import { SINDHI_CHARACTERS } from "./sindhi-map.js";
 
 export interface LegacyDecodeOptions {
   mode?: Mode;
@@ -100,11 +101,11 @@ export function decodeLegacy(
       continue;
     }
 
-    if (b === 0x04 && i + 1 < data.length) {
+    if ((b === 0x04 || b === 0x05) && i + 1 < data.length) {
       const cb = data[i + 1]!;
 
       // Composite check first (4-byte sequence).
-      if (i + 3 < data.length && data[i + 2] === 0x04) {
+      if (b === 0x04 && i + 3 < data.length && data[i + 2] === 0x04) {
         const mod = data[i + 3]!;
         const composite = lookupComposite(cb, mod);
         if (composite !== undefined) {
@@ -119,7 +120,7 @@ export function decodeLegacy(
         }
       }
 
-      const mapped = lookupChar(cb, mode);
+      const mapped = b === 0x05 ? SINDHI_CHARACTERS[cb] : lookupChar(cb, mode);
       if (mapped !== undefined) {
         if (pendingSpace && current.length > 0 && !current.endsWith(" ")) {
           current += " ";

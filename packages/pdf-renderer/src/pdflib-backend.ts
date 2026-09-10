@@ -2,6 +2,7 @@ import type { ShapedRun } from "@inpage/text-shaper";
 import type { EmbeddedImage, PageObject } from "@inpage/document-model";
 import {
   PDFDocument,
+  PDFDict,
   PDFFont,
   PDFHexString,
   PDFName,
@@ -280,11 +281,25 @@ export class PdfLibBackend implements PdfBackend {
         ...(borderWidth ? {borderColor:rgb(0,0,0)} : {}),
         ...(shouldFill ? {color:rgb(shade,shade,shade)} : {})});
       if (object.fillPattern === 3) {
-        const inset=borderWidth;
-        for (let py=top+inset+2;py<top+height-inset-2;py+=6) {
-          for (let px=x+inset+2;px<x+width-inset-2;px+=7) this.currentPage.drawLine({
-            start:{x:px,y:pageHeight-py},end:{x:px+2,y:pageHeight-py-2},thickness:0.35,color:rgb(0,0,0)});
-        }
+        // A tiling brush must remain a PDF pattern: flattening it into page
+        // paths changes the rasterizer's cell rounding at different resolutions.
+        const context=this.doc.context,resources=this.currentPage.node.Resources() ?? context.obj({});
+        this.currentPage.node.set(PDFName.of("Resources"),resources);
+        const patterns=resources.lookupMaybe(PDFName.of("Pattern"),PDFDict) ?? context.obj({});
+        resources.set(PDFName.of("Pattern"),patterns);
+        const key=patterns.uniqueKey("InPageDiagonal");
+        const tile=context.flateStream("1 g 4 7 5 2 re f 0 g 4 7 m 4.96 7 l 6.96 9 l 6 9 l h f",{
+          Type:"Pattern",PatternType:1,PaintType:1,TilingType:2,BBox:[0,0,9,9],XStep:9,YStep:9,
+          Matrix:[0.75,0,0,-0.75,0,pageHeight],Resources:{},
+        });
+        patterns.set(key,context.register(tile));
+        this.currentPage.pushOperators(pushGraphicsState(),
+          PDFOperator.of(PDFOperatorNames.NonStrokingColorspace,[PDFName.of("Pattern")]),
+          PDFOperator.of(PDFOperatorNames.NonStrokingColorN,[key]),
+          moveTo(x+borderWidth,pageHeight-top-borderWidth),
+          lineTo(x+width-borderWidth,pageHeight-top-borderWidth),
+          lineTo(x+width-borderWidth,pageHeight-top-height+borderWidth),
+          lineTo(x+borderWidth,pageHeight-top-height+borderWidth),closePath(),fill(),popGraphicsState());
       }
       if (object.borderStyle === 17 && borderWidth > 0) {
         // Native diagonal border: double-thickness black spans separated by narrow gaps,

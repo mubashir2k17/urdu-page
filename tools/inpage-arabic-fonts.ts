@@ -1,8 +1,10 @@
 import {readFileSync, existsSync} from "node:fs";
 import {join} from "node:path";
 import fontkit from "@pdf-lib/fontkit";
-import {HarfBuzzTextShaper, LegacyArabicTextShaper, type ArabicLetterForms, type ShapeFont, type TextShaper} from "@inpage/text-shaper";
+import {HarfBuzzTextShaper, LegacyArabicTextShaper, type ArabicGlyphSubstitution, type ArabicLetterForms, type ShapeFont, type TextShaper} from "@inpage/text-shaper";
+import {ARABIC_SUBSTITUTION_STAGES} from "./inpage-arabic-substitutions.js";
 import {CHAR_MAP_URDU} from "../packages/inp-parser/src/charmap.js";
+import {SINDHI_CHARACTERS, SINDHI_CONTEXTUAL_SLOTS} from "../packages/inp-parser/src/sindhi-map.js";
 
 /** Imported families share the root table's Arabic symbol slots (banks 100/101). */
 export function loadArabicFontFamilies(directory: string, data: Uint8Array): {fonts:ShapeFont[]; names:Map<string,ShapeFont>; shapers:Map<string,TextShaper>} {
@@ -34,7 +36,24 @@ export function loadArabicFontFamilies(directory: string, data: Uint8Array): {fo
       if (!glyph.id) return;
       return {id:glyph.id,fontId:face.face.id,advance:glyph.advanceWidth * 1000 / face.font.unitsPerEm};
     };
-    for (const [encoded,char] of Object.entries(CHAR_MAP_URDU)) {
+    if(family==="ZoharSindhi") {
+      const at=(slot:number,bank=0)=>{
+        if(!slot)return;
+        const face=faces[bank]!;
+        const glyph=face.font.glyphForCodePoint(0xf000+slot);
+        if(!glyph.id)return;
+        return {id:glyph.id,fontId:face.face.id,advance:glyph.advanceWidth*1000/face.font.unitsPerEm};
+      };
+      for(const [code,slots] of SINDHI_CONTEXTUAL_SLOTS) {
+        const char=SINDHI_CHARACTERS[code],isolated=at(slots[0]!);
+        if(!char || !isolated)continue;
+        const final=at(slots[1]!),medial=at(slots[2]!),initial=at(slots[3]!);
+        forms.set(char,{isolated,...(final?{final}:{}),...(medial?{medial}:{}),...(initial?{initial}:{}),mark:/\p{M}/u.test(char)});
+      }
+      // Native Sindhi lam + alef switches to bank e7, slots 21/22.
+      const isolated=at(0x21,1),final=at(0x22,1);
+      if(isolated && final)forms.set("لا",{isolated,final});
+    } else for (const [encoded,char] of Object.entries(CHAR_MAP_URDU)) {
       const code = Number(encoded);
       const isolated = glyphAt(code,6) ?? glyphAt(code,4);
       if (!isolated || forms.has(char)) continue;
@@ -45,7 +64,7 @@ export function loadArabicFontFamilies(directory: string, data: Uint8Array): {fo
     }
     // The base Arabic bank carries dedicated lam–alef forms; these share
     // symbol slots across the imported families (isolated then final).
-    for(const [text,slot] of [["لا",0x9f],["لأ",0xa2],["لآ",0xa4],["لإ",0xa6]] as const) {
+    if(family!=="ZoharSindhi")for(const [text,slot] of [["لا",0x9f],["لأ",0xa2],["لآ",0xa4],["لإ",0xa6]] as const) {
       const face=faces[0]!;
       const at=(slot:number)=>{
         const glyph=face.font.glyphForCodePoint(0xf000+slot);
@@ -58,9 +77,22 @@ export function loadArabicFontFamilies(directory: string, data: Uint8Array): {fo
       const form=forms.get(urdu!);
       if(form && !forms.has(arabic!))forms.set(arabic!,form);
     }
+    const substitutions:ArabicGlyphSubstitution[][]=family==="ZoharSindhi"?[]:ARABIC_SUBSTITUTION_STAGES.map(stage=>stage.flatMap(([input,output])=>{
+      const at=(bank:number,slot:number)=>{
+        const face=faces[bank-0xe4];
+        if(!face)return;
+        const glyph=face.font.glyphForCodePoint(0xf000+slot);
+        if(!glyph.id)return;
+        return {id:glyph.id,fontId:face.face.id,advance:glyph.advanceWidth*1000/face.font.unitsPerEm};
+      };
+      const glyphs=Array.from({length:input.length/2},(_,i)=>at(input[i*2]!,input[i*2+1]!));
+      const replacement=at(output[0]!,output[1]!);
+      if(!replacement || glyphs.some(glyph=>!glyph))return [];
+      return [{input:glyphs.filter(glyph=>glyph!==undefined),output:replacement}];
+    }));
     const face = faces[0]!.face;
     names.set(family,face);
-    shapers.set(face.id,new LegacyArabicTextShaper(forms,{shape(input){return unicodeShaper.shape({...input,font:fallbackFont});}}));
+    shapers.set(face.id,new LegacyArabicTextShaper(forms,{shape(input){return unicodeShaper.shape({...input,font:fallbackFont});}},substitutions));
   }
   return {fonts,names,shapers};
 }

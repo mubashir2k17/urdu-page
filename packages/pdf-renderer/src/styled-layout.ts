@@ -150,7 +150,7 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
         const ratio=columnWidth/contentWidth;
         const wordSpaces=items.filter(item=>/^\s+$/.test(item.text));
         const spaceWidth=wordSpaces.reduce((sum,item)=>sum+item.width,0);
-        const fitSpaces=baseDirection==="rtl" && items.every(item=>item.style.arabicFontName==="Noori Nastaliq") &&
+        const fitSpaces=baseDirection==="rtl" && items.every(item=>!!item.style.arabicFontName) &&
           spaceWidth>0 && spaceWidth+columnWidth-contentWidth>=0;
         // A standalone symbol's saved extent is its font cell measurement;
         // fit the symbol itself when the host provides a metrically different face.

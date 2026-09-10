@@ -1,16 +1,16 @@
 # Handoff — InPage `.inp` → PDF Converter
 
-**Prepared:** 2026-09-09
+**Prepared:** 2026-09-10
 
 **Repository:** `/Users/mubashirsmacbook/projects/inpage-viewer`
 
 **Branch:** `main`
 
-**Previous committed milestone:** `09a544f feat(render): recover source styles and drawing`
+**Previous committed milestone:** `53dc653 feat(render): apply saved InPage line layout`
 
-**This checkpoint:** cached source layout, improved glyph decoding and border geometry
+**This checkpoint:** Sindhi text, Arabic word spacing, and native PDF hatch tiling
 
-**Last full verification:** 2026-09-09
+**Last full verification:** 2026-09-10
 
 ## Objective
 
@@ -22,10 +22,10 @@ coordinates in the renderer.
 
 ## Current status
 
-### 2026-09-09: SAMPLE2 fidelity goal remains active
+### 2026-09-10: SAMPLE2 fidelity goal remains active
 
 - Target: at least **90%** in the unchanged 36 dpi grayscale ink-overlap audit.
-  Latest fresh result: **72.8%**, one matching A3 sheet. **Not complete.**
+  Latest fresh result: **76.0%**, one matching A3 sheet. **Not complete.**
 - Continue the requested order (rotation, fonts, effects, tables) and the 80/20
   approach. First passes cover all four; prioritize missing visible content.
 - Source line/frame caches now supply baselines, run extents, frame insets and
@@ -33,7 +33,7 @@ coordinates in the renderer.
   The large heading stays on one line; table rows use saved native placement.
 - Negative and zero-width tracked runs retain their visible glyphs. Punctuation
   no longer forces whole Urdu words onto Noto, and joining hamza terminals work.
-  Noori word-space fitting preserves glyph advances where the saved extent
+  Arabic and Noori word-space fitting preserves glyph advances where the saved extent
   allows it. Latin runs retain letter spacing. This fitting is still approximate.
 - Corrected advancing Arabic Alef codes C8–CA, added native lam–alef forms,
   recovered paragraph-before/after spacing, and extended Noori punctuation.
@@ -41,11 +41,16 @@ coordinates in the renderer.
 - Border strokes are inside source bounds. Image placement uses saved scale and
   offsets from the inner border. Styles 15/17 approximate diamond and diagonal
   border patterns. Optional Wine Symbol handles the native callout arrows.
-- Verification: full suite **84/84**, root typecheck, fresh audit and visual
+- Restored prefix-05 Sindhi using the supplied ZoharSindhi fonts and recovered
+  contextual slots. Mixed paragraphs retain their switch back to Urdu.
+- Pattern 3 uses a PDF tiling brush. Flattened hatch paths caused different
+  rasterizer cell rounding; restoring tiling raised the audit from 74.1% to 76.0%.
+- Verification: full suite **90/90**, root typecheck, fresh audit and visual
   inspection. Local font mode remains opt-in; reference PDFs are evaluation-only.
-- Largest remaining gaps: Sindhi/Pashto source prefixes 05/07 are not decoded;
+- Largest remaining gaps: Pashto prefix 07 still needs its Noori Character table;
   Arabic marks and contextual spacing; remaining Noori metric differences;
-  exact hatch/border artwork and outline thickness.
+  remaining border artwork and outline thickness. Glyph-position diagnostics also
+  reveal accumulated native device rounding in line heights.
 - Source evidence and next investigation: `docs/research/sample2-layout-recovery.md`.
   Earlier sections below are historical milestones, not current limitations.
 

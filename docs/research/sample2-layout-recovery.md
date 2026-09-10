@@ -2,8 +2,8 @@
 
 The active target is 90% overlap against `tests/SAMPLE2.pdf`, using the existing
 grayscale ink intersection/union audit at 36 dpi with no registration correction.
-The latest fresh result is **72.8%** (one A3 sheet, source text count 3432, PDF
-text count 3043 versus reference 2138). It does not meet the target. The source
+The latest fresh result is **76.0%** (one A3 sheet, source text count 3533, PDF
+text count 3146 versus reference 2138). It does not meet the target. The source
 INP composition is A4 and the reference export uses an A3 sheet.
 
 ## Implemented source evidence
@@ -25,7 +25,7 @@ INP composition is A4 and the reference export uses an A3 sheet.
   use decimal and left alignment. Header tabs skip stops already passed by the
   preceding cell's content.
 - Root +4 selects isolated Noori alternatives. Trie terminals now include
-  explicit marked variants. Enabled local mappings: 18026, including 1431
+  explicit marked variants. Enabled local mappings: 18065, including 1431
   verified zero-advance overlays, across 89 Noori banks.
 - DAT `0x398a4` stores signed right/left spacing bounds for bank/slot pairs.
   `0x40bc69–0x40bd76` limits advances using the previous left boundary and the
@@ -112,14 +112,14 @@ border geometry 68.1%; patterned borders 69.2%; Wine Symbol 70.1%; Arabic forms
 The metric and resolution have not changed. A trial using unrestricted native
 Noori advances fell to 66.3% and was removed: caches remain necessary.
 
-Full suite: **84/84 passed**, including the Latin-spacing regression. Root
+Full suite: **90/90 passed**, including the Latin-spacing regression. Root
 typecheck and the final focused audit passed.
 Fresh PDF and raster artifacts live under ignored `tmp/pdfs/inpage-font-audit/`.
-The final visually checked preview is `tmp/pdfs/sample2-checkpoint.png`. The Noto reference tests still pass; no changes
+The final visually checked preview is `tmp/pdfs/sample2-76.png`. The Noto reference tests still pass; no changes
 to the audit threshold or reference inputs have been made.
 
 
-Regional diagnostics at this checkpoint (same pixels, no registration):
+Regional diagnostics at the previous 72.8% checkpoint (same pixels, no registration):
 
 | Region | Ink overlap |
 |---|---:|
@@ -139,13 +139,10 @@ remaining ink differences. Raw regional results are in the ignored audit folder.
 
 The target is still unmet. Highest-impact remaining work:
 
-1. Restore Sindhi / Pashto text (prefixes 05 / 07, cache kinds 7f86 / 7f8b).
-   The original executable's Sindhi routine is 0x415880. A four-byte-per-code
-   contextual slot table starts at virtual address 0x501200, used at 0x415b55
-   and 0x415b8f. Codes 81–dd are the bounded table; bytes beyond are other data.
-   Forms are isolated/final/medial/initial, with two native font banks e6/e7.
-   A local dump is `tmp/reverse-engineering/sindhi-forms.bin`. Unicode mapping
-   is not yet verified; do not simply reuse Urdu's alphabet numbering.
+1. Restore Pashto text (prefix 07, cache kind 7f8b). Applying the Urdu root
+   forms directly to NOORIC produces incorrect shapes: its symbol slots differ.
+   That trial was removed. The native source routes 7f8b through 0x413c50,
+   but the later Noori Character translation still needs recovery.
 2. Correct Arabic mark positioning and remaining joining/spacing differences.
 3. Recover exact Noori word-boundary spacing and missing original glyph slots.
    The current saved-width fitting improves layout but is not exact shaping.
@@ -176,3 +173,46 @@ npm run audit:references -- --case sample --inpage-fonts fonts/inpage-local
 
 Outputs: ignored `tmp/pdfs/inpage-font-audit/sample2-current.pdf` and
 `tmp/pdfs/inpage-font-audit/report.json`. Vendor software/fonts are not committed.
+
+## 2026-09-10: Sindhi, word spacing, and tiling
+
+The fresh unchanged audit is 0.7595340607 (76.0% rounded). Sindhi restoration
+raised the checkpoint to 73.1%; preserving character advances while fitting
+word spaces for the other Arabic families raised it to 74.1%; PDF hatch tiling
+raised it to 76.0%. No reference pixels or glyph coordinates enter rendering.
+
+Prefix 05 has its own alphabet. `sindhi-map.ts` records assignments identified
+from atlases generated with the supplied SINDHI.UTF, cross-checked against the
+[Unicode Arabic chart](https://www.unicode.org/charts/PDF/U0600.pdf).
+The native contextual slot table is at 0x501200 + code*4; the bounded alphabet
+is 81–dd, forms isolated/final/medial/initial. Banks e6/e7 are ZoharSindhi and
+ZoharSindhi01. Lam + alef uses secondary slots 21/22. The parser keeps script
+transitions inside a style span; the Urdu annotation after Sindhi remains in
+Noori Nastaliq. Synthetic bold and rarer Sindhi combinations remain incomplete.
+Local atlases: `tmp/pdfs/sindhi-atlas.png` and `sindhi-marks.png`.
+
+The Arabic shaper accepts optional ordered glyph substitution stages. Nineteen
+mark combinations from native table 0x4ff6a8 are enabled, preserving source
+mark order and zero additional advance. The separate table at 0x4ff908 contains
+205 rules, including multi-output rules with positional flags; these are not
+enabled. A partial single-output trial reduced the score and was removed.
+The original source text is retained as ActualText.
+
+Reference pattern 3 is a colored PDF tiling pattern, with a 9×9 cell, type 2,
+and a 0.75 scale into page coordinates. Its diagonal occupies the cell's
+lower-right clipped portion. A small vector tile reproduces this geometry;
+no reference bitmap is imported. Emitting separate page paths instead gives
+a different result because pattern cell spacing is quantized by rasterizers.
+The pattern resource is page-anchored and independent of each frame's position.
+
+Next diagnostic evidence: `tmp/glyph-positions.py` reads both generated and
+reference PDF text matrices. Reference Noori subset glyph IDs retain the
+original bank IDs, which allows direct positional comparison. Many column
+positions differ by less than 0.1 pt, but groups around some word boundaries
+are displaced by 0.5–1.5 pt. Baseline differences on successive 16-pt lines are
+0.036, 0.076, 0.116 pt: the reference advances by 15.96 pt, consistent with
+rounding each line to a 600-dpi device grid. This is a hypothesis for the next
+implementation; no global position correction or metric registration is applied.
+`tmp/glyph-deltas.txt` and `tmp/glyph-positions.json` hold the diagnostic output.
+
+The latest visual preview is `tmp/pdfs/sample2-76.png`; the 90% goal is active.

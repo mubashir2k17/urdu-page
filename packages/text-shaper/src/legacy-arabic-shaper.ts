@@ -13,12 +13,18 @@ export interface ArabicLetterForms {
   mark?: boolean;
 }
 
+export interface ArabicGlyphSubstitution {
+  input: readonly Pick<ArabicFormGlyph,"id"|"fontId">[];
+  output: ArabicFormGlyph;
+}
+
 /** Contextual symbol-font forms, supplied by the decoded InPage root table. */
 export class LegacyArabicTextShaper implements TextShaper {
-  constructor(private readonly forms: ReadonlyMap<string, ArabicLetterForms>, private readonly fallback: TextShaper) {}
+  constructor(private readonly forms: ReadonlyMap<string, ArabicLetterForms>, private readonly fallback: TextShaper,
+    private readonly substitutions: readonly (readonly ArabicGlyphSubstitution[])[] = []) {}
 
   shape(input: ShapeInput): ShapedRun {
-    const chars = [...input.text.normalize("NFC")].flatMap(char=>
+    const chars = [...input.text].flatMap(char=>
       this.forms.has(char)?[char]:[...char.normalize("NFD")]);
     if (!chars.length || chars.some(char => !this.forms.has(char))) return this.fallback.shape(input);
     const clusters: {glyph: ArabicFormGlyph; marks: ArabicFormGlyph[]; cluster: number}[] = [];
@@ -42,6 +48,30 @@ export class LegacyArabicTextShaper implements TextShaper {
       clusters.push({glyph,marks,cluster:base.index});
     }
     if (!clusters.length) return this.fallback.shape(input);
+    // Native substitutions run in logical order after contextual forms. A
+    // mark-only combination remains attached to its base without an advance.
+    let sequence=clusters.flatMap(({glyph,marks,cluster})=>[
+      {glyph,cluster,mark:false},...marks.map(glyph=>({glyph,cluster,mark:true})),
+    ]);
+    for(const rules of this.substitutions) {
+      const replaced:typeof sequence=[];
+      for(let index=0;index<sequence.length;) {
+        const rule=rules.find(rule=>rule.input.length>0 && rule.input.every((expected,offset)=>{
+          const actual=sequence[index+offset]?.glyph;
+          return actual?.id===expected.id && actual.fontId===expected.fontId;
+        }));
+        if(!rule){replaced.push(sequence[index++]!);continue;}
+        const consumed=sequence.slice(index,index+rule.input.length);
+        replaced.push({glyph:rule.output,cluster:consumed[0]!.cluster,mark:consumed.every(item=>item.mark)});
+        index+=rule.input.length;
+      }
+      sequence=replaced;
+    }
+    clusters.length=0;
+    for(const item of sequence) {
+      if(item.mark && clusters.length)clusters.at(-1)!.marks.push(item.glyph);
+      else clusters.push({glyph:item.glyph,marks:[],cluster:item.cluster});
+    }
     const glyphs: ShapedGlyph[] = [];
     for (const cluster of input.direction === "rtl" ? clusters.reverse() : clusters) {
       const base = cluster.glyph;

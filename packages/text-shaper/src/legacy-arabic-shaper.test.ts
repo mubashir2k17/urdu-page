@@ -3,6 +3,20 @@ import type {ShapeInput,TextShaper} from "./index.js";
 import {LegacyArabicTextShaper,type ArabicLetterForms} from "./legacy-arabic-shaper.js";
 
 describe("Arabic symbol ligatures",()=>{
+  it("combines marks in source order without adding a character advance",()=>{
+    const glyph=(id:number,advance=500)=>({id,fontId:"arabic",advance});
+    const forms=new Map<string,ArabicLetterForms>([
+      ["ب",{isolated:glyph(1)}],
+      ["ّ",{isolated:glyph(2),mark:true}],
+      ["َ",{isolated:glyph(3),mark:true}],
+    ]);
+    const shaper=new LegacyArabicTextShaper(forms,{shape(){throw Error("Unexpected fallback");}},
+      [[{input:[glyph(2),glyph(3)],output:glyph(4)}]]);
+    const run=shaper.shape({text:"بَّ",font:{id:"arabic",bytes:new Uint8Array()},direction:"rtl",language:"ar",script:"arab"});
+    expect(run.glyphs.map(g=>[g.id,g.cluster,g.xAdvance])).toEqual([[1,0,0],[4,0,500]]);
+    expect(run.totalAdvance).toBe(500);
+    expect(run.logicalText).toBe("بَّ");
+  });
   it("joins lam–alef to a preceding letter and preserves intervening marks",()=>{
     const glyph=(id:number,advance=500)=>({id,fontId:"arabic",advance});
     const forms=new Map<string,ArabicLetterForms>([

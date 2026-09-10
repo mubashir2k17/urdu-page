@@ -43,7 +43,7 @@ export type { InPageLigature, InPageBankMetrics } from "./inpage-font-data.js";
 export { LegacyLigatureTextShaper } from "./legacy-ligature-shaper.js";
 export type { LegacyLigatureGlyph } from "./legacy-ligature-shaper.js";
 export { LegacyArabicTextShaper } from "./legacy-arabic-shaper.js";
-export type { ArabicLetterForms } from "./legacy-arabic-shaper.js";
+export type { ArabicGlyphSubstitution, ArabicLetterForms } from "./legacy-arabic-shaper.js";
 
 export interface ShapedRun {
   logicalText: string;
