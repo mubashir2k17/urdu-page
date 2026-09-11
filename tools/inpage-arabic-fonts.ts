@@ -2,12 +2,15 @@ import {readFileSync, existsSync} from "node:fs";
 import {join} from "node:path";
 import fontkit from "@pdf-lib/fontkit";
 import {HarfBuzzTextShaper, LegacyArabicTextShaper, type ArabicGlyphSubstitution, type ArabicLetterForms, type ShapeFont, type TextShaper} from "@inpage/text-shaper";
+import {ARABIC_KASHIDA_WEIGHTS,ARABIC_MARK_FLAGS} from "./inpage-arabic-glyph-properties.js";
 import {ARABIC_SUBSTITUTION_STAGES} from "./inpage-arabic-substitutions.js";
 import {CHAR_MAP_URDU} from "../packages/inp-parser/src/charmap.js";
 import {SINDHI_CHARACTERS, SINDHI_CONTEXTUAL_SLOTS} from "../packages/inp-parser/src/sindhi-map.js";
 
 /** Imported families share the root table's Arabic symbol slots (banks 100/101). */
 export function loadArabicFontFamilies(directory: string, data: Uint8Array): {fonts:ShapeFont[]; names:Map<string,ShapeFont>; shapers:Map<string,TextShaper>} {
+  const kashidaWeights=new Map(ARABIC_KASHIDA_WEIGHTS.map(([bank,slot,weight])=>[bank*256+slot,weight]));
+  const markFlags=new Map(ARABIC_MARK_FLAGS.map(([bank,slot,flags])=>[bank*256+slot,flags]));
   const inventory = JSON.parse(readFileSync(join(directory,"inventory.json"),"utf8")) as {fonts:{file:string;family?:string}[]};
   const files = new Map(inventory.fonts.filter(item => item.family).map(item => [item.family!,item.file]));
   const names = new Map<string,ShapeFont>();
@@ -27,6 +30,19 @@ export function loadArabicFontFamilies(directory: string, data: Uint8Array): {fo
       return {face,font};
     });
     const forms = new Map<string,ArabicLetterForms>();
+    const baseFace=faces[0]!.font;
+    const bounds=(slot:number)=>baseFace.glyphForCodePoint(0xf000+slot).bbox;
+    const metricScale=1000/baseFace.unitsPerEm;
+    // Native 0x408097–0x408272 measures these five glyphs to place marks.
+    const upper=(bounds(0xd7).maxY-bounds(0xf7).minY)*metricScale+50;
+    const lower=(bounds(0x6f).minY-bounds(0xf4).maxY)*metricScale;
+    const lowerAlternate=(bounds(0x74).minY-bounds(0xf4).maxY)*metricScale;
+    const properties=(bank:number,slot:number)=>{
+      const flags=markFlags.get(bank*256+slot) ?? 0;
+      return {kashidaWeight:kashidaWeights.get(bank*256+slot) ?? 0,
+        ...(flags&1?{markPosition:"above" as const}:flags&2?{markPosition:"below" as const}:{}),
+        aboveMarkOffset:flags&4?upper:0,belowMarkOffset:flags&8?lower:flags&16?lowerAlternate:0};
+    };
     const glyphAt = (code:number,delta:number) => {
       const p = 0x51ca4 + code*20 + delta;
       const face = faces[data[p]! - 0xe4];
@@ -34,7 +50,7 @@ export function loadArabicFontFamilies(directory: string, data: Uint8Array): {fo
       if (!face || slot < 32) return;
       const glyph = face.font.glyphForCodePoint(0xf000+slot);
       if (!glyph.id) return;
-      return {id:glyph.id,fontId:face.face.id,advance:glyph.advanceWidth * 1000 / face.font.unitsPerEm};
+      return {id:glyph.id,fontId:face.face.id,advance:glyph.advanceWidth * 1000 / face.font.unitsPerEm,...properties(data[p]!,slot)};
     };
     if(family==="ZoharSindhi") {
       const at=(slot:number,bank=0)=>{
@@ -68,7 +84,7 @@ export function loadArabicFontFamilies(directory: string, data: Uint8Array): {fo
       const face=faces[0]!;
       const at=(slot:number)=>{
         const glyph=face.font.glyphForCodePoint(0xf000+slot);
-        return {id:glyph.id,fontId:face.face.id,advance:glyph.advanceWidth*1000/face.font.unitsPerEm};
+        return {id:glyph.id,fontId:face.face.id,advance:glyph.advanceWidth*1000/face.font.unitsPerEm,...properties(0xe4,slot)};
       };
       const isolated=at(slot),final=at(slot===0x9f?0xa1:slot+1);
       if(isolated.id && final.id)forms.set(text,{isolated,final});
@@ -83,16 +99,18 @@ export function loadArabicFontFamilies(directory: string, data: Uint8Array): {fo
         if(!face)return;
         const glyph=face.font.glyphForCodePoint(0xf000+slot);
         if(!glyph.id)return;
-        return {id:glyph.id,fontId:face.face.id,advance:glyph.advanceWidth*1000/face.font.unitsPerEm};
+        return {id:glyph.id,fontId:face.face.id,advance:glyph.advanceWidth*1000/face.font.unitsPerEm,...properties(bank,slot)};
       };
       const glyphs=Array.from({length:input.length/2},(_,i)=>at(input[i*2]!,input[i*2+1]!));
       const replacement=at(output[0]!,output[1]!);
       if(!replacement || glyphs.some(glyph=>!glyph))return [];
       return [{input:glyphs.filter(glyph=>glyph!==undefined),output:replacement}];
     }));
+    const kashidaFace=faces[0]!,extension=kashidaFace.font.glyphForCodePoint(0xf0b3);
+    const kashida=family!=="ZoharSindhi" && extension.id?{id:extension.id,fontId:kashidaFace.face.id,advance:extension.advanceWidth*1000/kashidaFace.font.unitsPerEm}:undefined;
     const face = faces[0]!.face;
     names.set(family,face);
-    shapers.set(face.id,new LegacyArabicTextShaper(forms,{shape(input){return unicodeShaper.shape({...input,font:fallbackFont});}},substitutions));
+    shapers.set(face.id,new LegacyArabicTextShaper(forms,{shape(input){return unicodeShaper.shape({...input,font:fallbackFont});}},substitutions,kashida));
   }
   return {fonts,names,shapers};
 }

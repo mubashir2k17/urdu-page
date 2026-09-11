@@ -79,7 +79,7 @@ export function decodeStyledStories(data: Uint8Array, mode: Mode): {stories: Sto
                   for(const paragraph of decodeStyledBytes(payload.subarray(left,right),mode,styles[index]!).paragraphs)
                     for(const part of paragraph.runs)runs.push({...part,style:{...styles[index]!,...part.style}});
                 });
-                return {x:run.x,width:run.width,...(run.characterSpacing===undefined?{}:{characterSpacing:run.characterSpacing,extraSpace:run.extraSpace ?? 0}),...(run.baseline===undefined?{}:{baseline:run.baseline}),
+                return {x:run.x,width:run.width,...(run.kashidaCount?{kashidaCount:run.kashidaCount}:{}),...(run.characterSpacing===undefined?{}:{characterSpacing:run.characterSpacing,extraSpace:run.extraSpace ?? 0}),...(run.baseline===undefined?{}:{baseline:run.baseline}),
                   direction:run.kind!==0x7f80?"rtl" as const:"ltr" as const,runs};
               })}))};
         }

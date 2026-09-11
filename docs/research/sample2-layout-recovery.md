@@ -2,7 +2,7 @@
 
 The active target is 90% overlap against `tests/SAMPLE2.pdf`, using the existing
 grayscale ink intersection/union audit at 36 dpi with no registration correction.
-The latest fresh result is **77.9%** (one A3 sheet, source text count 3533, PDF
+The latest fresh result is **80.2%** (one A3 sheet, source text count 3533, PDF
 text count 3158 versus reference 2138). It does not meet the target. The source
 INP composition is A4 and the reference export uses an A3 sheet.
 
@@ -275,3 +275,61 @@ Ignored diagnostic atlas: `tmp/pdfs/nooric-all.png`; PE reader:
 `tmp/reverse-engineering/pe.py`. This remains unfinished, alongside Arabic
 contextual substitutions and precise Noori metrics. Avoid another blind
 Urdu-root-to-NOORIC mapping trial.
+
+
+## 2026-09-11: native Arabic kashidas and mark placement
+
+Fresh unchanged audit: **0.8018589035 (80.2%)**, 97 tests passing and root
+typecheck passing. Preview: `tmp/pdfs/sample2-80.png`. The 90% goal is active.
+
+A glyph inventory of the Arabic body exposed the main omission: every base
+and mark glyph count already matched, while the reference had 26 additional
+Aasaar glyphs at symbol slot b3 (kashida). These are now restored from source
+metadata. The seven body cache lines store counts **4, 1, 0, 5, 6, 10, 0**.
+After restoration, the generated and reference body each contain 404 Aasaar /
+Aasaar01 glyphs. This is a diagnostic comparison, not renderer input.
+
+Cache kind 7f85 / 7f8b interprets the 32-bit field at +18 as a kashida count,
+where Latin kind 7f80 interprets it as tracking. Positive counts are bounded
+at 10000. Routine 0x40a150 distributes that count over symbol glyphs using
+weights from 0x4e6028: first floor(weight × count / total weight), then assign
+the remainder round-robin in logical reading order among eligible glyphs.
+The table supplies 67 nonzero weights in bank e4; bank e5 has no opportunities.
+
+The shaper exposes optional kashida metadata on each eligible cluster's
+advance-carrying glyph. The renderer distributes the saved count across the
+run and inserts extensions after the complete cluster, including attached
+marks. Extensions use the original bank-e4 b3 glyph and its font advance.
+Logical text remains unchanged. Trailing spaces in explicitly kashida-justified
+runs remain in the measured extent; trimming them had shifted the leftmost
+words by about two points. Preserving boundary spaces for every Arabic-family
+run regressed the font specimen region, so that broader trial was removed.
+
+Native mark flags are the low byte of each two-byte entry at 0x4e5c28 (banks
+e4/e5). Bits 1/2 classify upper/lower marks; bits 4/8/16 classify the base's
+upper and two lower displacement groups. Routine 0x408097–0x408272 calibrates
+these displacements from the active font's glyph bounds:
+
+- Upper: maxY(d7) + 50 − minY(f7), normalized to 1000 units.
+- Lower: minY(6f) − maxY(f4).
+- Alternate lower: minY(74) − maxY(f4).
+
+`inpage-arabic-glyph-properties.ts` records the static weights and classes.
+Font-specific distances come from the supplied font, and contextual forms,
+lam–alef ligatures and mark substitutions retain these properties. This is
+still an approximation to GDI's grid-fitted glyph bounds: Aasaar's geometric
+upper/lower distances are 235/−314 units, while the reference places these
+marks close to 240/−310 units. No fixed reference-specific offset was added.
+
+The Arabic diagnostic region improved from 48.9% to **82.5%**; font specimens
+are **69.4%**. Main remaining differences are now the Noori column metrics,
+missing Pashto lines, residual outline positioning and border/image rendering.
+Aasaar's 66 nonempty reference glyph outlines exactly match the supplied font;
+raw glyph records and hint programs also match (apart from subset removal).
+A font-version substitution is therefore not the next useful Arabic fix.
+
+Diagnostic tools: `tmp/all-glyph-positions.py` now expands complete TJ arrays,
+`tmp/region-score.py` reports fixed regional crops, and
+`tmp/compare-arabic-outlines.ts` compares outlines. The original simpler
+`tmp/glyph-positions.py` only locates the first glyph of a TJ array and should
+not be used for per-character Latin comparisons.

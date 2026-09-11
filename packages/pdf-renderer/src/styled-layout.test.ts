@@ -1,6 +1,6 @@
 import {describe,expect,it,vi} from "vitest";
 import type {PageObject,Story} from "@inpage/document-model";
-import type {ShapedRun} from "@inpage/text-shaper";
+import type {ShapedGlyph,ShapedRun} from "@inpage/text-shaper";
 import type {PdfBackend} from "./backend.js";
 import {drawStyledStory} from "./styled-layout.js";
 
@@ -53,6 +53,27 @@ describe("saved source layout",()=>{
     expect(b[1]).toBeCloseTo(35);
     expect(b[2]).toBeCloseTo(194);
     expect(draw.mock.calls.at(-1)![0].totalAdvance).toBe(1600);
+  });
+  it("distributes saved kashidas by weight in reading order after attached marks",()=>{
+    const draw=vi.fn<PdfBackend["drawShapedRun"]>();
+    const backend:PdfBackend={addPage(){},measureShapedRun:(run,size)=>run.totalAdvance*size/run.unitsPerEm,
+      drawShapedRun:draw,async drawImage(){},drawLine(){},drawRectangle(){},async save(){return new Uint8Array();}};
+    const object:PageObject={id:1,kind:"text",bounds:{xPoints:10,yPoints:20,widthPoints:15,heightPoints:40},sourceOffset:0,confidence:"high"};
+    const story:Story={index:0,startOffset:0,endOffset:0,paragraphs:[],cachedLayout:{frameId:1,columnWidth:15,
+      contentHeight:40,columns:1,lines:[{height:40,baseline:25,width:15,runs:[{x:0,width:15,direction:"rtl",kashidaCount:3,
+        runs:[{kind:"text",text:"ب ت",style:{fontSize:10,arabicFontName:"Aasaar"}}]}]}]}};
+    const shape=(text:string):ShapedRun=>{
+      const glyphs:ShapedGlyph[]=[{id:text==="ب"?10:text==="ت"?20:3,cluster:0,xAdvance:text===" "?200:500,yAdvance:0,xOffset:0,yOffset:0}];
+      if(text==="ب") {glyphs[0]!.xAdvance=0;glyphs.push({id:11,cluster:0,xAdvance:500,yAdvance:0,xOffset:0,yOffset:240});}
+      if(text!==" ")glyphs.at(-1)!.kashida={id:90,fontId:"arabic",advance:100,weight:text==="ب"?1:3};
+      return {logicalText:text,fontId:"arabic",direction:"rtl",language:"ar",script:"arab",unitsPerEm:1000,
+        glyphs,totalAdvance:text===" "?200:500,missingGlyphCount:0};
+    };
+    drawStyledStory(story,object,backend,shape,200);
+    expect(draw.mock.calls.map(call=>call[0].glyphs.map(glyph=>glyph.id))).toEqual([[20,90,90],[3],[10,11,90]]);
+    expect(draw.mock.calls.at(-1)![0].logicalText).toBe("ب");
+    expect(draw.mock.calls.at(-1)![0].glyphs[1]!.yOffset).toBe(240);
+    expect(draw.mock.calls.reduce((sum,call)=>sum+call[0].totalAdvance,0)).toBe(1500);
   });
   it("draws overlapping runs even when tracking gives them zero or negative advance",()=>{
     const draw=vi.fn<PdfBackend["drawShapedRun"]>();

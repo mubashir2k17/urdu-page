@@ -1,4 +1,4 @@
-interface CachedRun {kind:number;start:number;end:number;x:number;width:number;baseline?:number;characterSpacing?:number;extraSpace?:number}
+interface CachedRun {kind:number;start:number;end:number;x:number;width:number;baseline?:number;characterSpacing?:number;extraSpace?:number;kashidaCount?:number}
 interface CachedLine {start:number;end:number;height:number;baseline:number;width:number;paragraphStart:boolean;runs:CachedRun[]}
 interface CachedFrame {id:number;columnWidth:number;contentHeight:number;columns:number}
 
@@ -19,7 +19,7 @@ export function readCachedLayout(data:Uint8Array,after:number,total:number):{fra
         const kind=view.getUint16(r,true),start=view.getUint16(r+4,true),end=view.getUint16(r+6,true);
         if(kind<0x7f00 || kind>0x7fff || start>end || end>count)break;
         const x=view.getInt32(r+8,true)/2000,right=view.getInt32(r+12,true)/2000;
-        runs.push({kind,start,end,x,width:right-x,...readLatinSpacing(view,r,kind)});
+        runs.push({kind,start,end,x,width:right-x,...readRunSpacing(view,r,kind)});
       }
       if(runs.length!==runCount)break;
       lines.push({start:covered,end:covered+count,height:height/2000,paragraphStart:view.getUint32(p+8,true)===1,baseline:view.getInt32(p+16,true)/2000,
@@ -75,7 +75,7 @@ function expandCells(view:DataView,length:number,after:number,lines:CachedLine[]
         const r=p+32+i*30,kind=view.getUint16(r,true),start=view.getUint16(r+4,true),end=view.getUint16(r+6,true);
         if(kind<0x7f00 || kind>0x7fff || start>end || end>count)break;
         const x=view.getInt32(r+8,true)/2000;
-        runs.push({kind,start,end,x,width:view.getInt32(r+12,true)/2000-x,...readLatinSpacing(view,r,kind)});
+        runs.push({kind,start,end,x,width:view.getInt32(r+12,true)/2000-x,...readRunSpacing(view,r,kind)});
       }
       if(runs.length!==runCount)break;
       found.push({start:countSum,end:countSum+count,height:height/2000,paragraphStart:view.getUint32(p+8,true)===1,baseline:view.getInt32(p+16,true)/2000,
@@ -107,8 +107,12 @@ function expandCells(view:DataView,length:number,after:number,lines:CachedLine[]
   parents.forEach((parent,index)=>{parent.runs=replacements[index]!;});
 }
 
-/** Latin records store per-character tracking and total extra width across spaces. */
-function readLatinSpacing(view:DataView,offset:number,kind:number):Pick<CachedRun,"characterSpacing"|"extraSpace"> {
+/** +18 is Latin tracking or an Arabic kashida count, depending on the run kind. */
+function readRunSpacing(view:DataView,offset:number,kind:number):Pick<CachedRun,"characterSpacing"|"extraSpace"|"kashidaCount"> {
+  if(kind===0x7f85 || kind===0x7f8b) {
+    const count=view.getInt32(offset+18,true);
+    return count>0 && count<=10000?{kashidaCount:count}:{};
+  }
   if(kind!==0x7f80)return {};
   const spaces=view.getUint16(offset+16,true);
   return {characterSpacing:view.getInt32(offset+18,true)/2000,

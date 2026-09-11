@@ -1,4 +1,4 @@
-import { HarfBuzzTextShaper, type ShapeInput, type ShapedRun, type TextShaper } from "./index.js";
+import { HarfBuzzTextShaper, type ShapeInput, type ShapedGlyph, type ShapedRun, type TextShaper } from "./index.js";
 
 export interface LegacyLigatureGlyph {
   text: string;
@@ -52,7 +52,7 @@ export class LegacyLigatureTextShaper implements TextShaper {
       return parts.map(part => {const token = {text:part,index}; index += part.length; return token;});
     });
     if (!tokens.some(({text}) => this.words.has(text))) return fallback;
-    const glyphs = tokens.reverse().flatMap((match) => {
+    const glyphs = tokens.reverse().flatMap<ShapedGlyph>((match) => {
       const text = match.text;
       const entry = this.words.get(text);
       // HarfBuzz addText uses Unicode scalar indices, not UTF-16 offsets.

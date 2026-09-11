@@ -6,9 +6,9 @@
 
 **Branch:** `main`
 
-**Previous committed milestone:** `5075f6a fix(render): restore Sindhi and native hatch tiling`
+**Previous committed milestone:** `5ff3e8a fix(render): recover native text spacing`
 
-**This checkpoint:** saved Latin tracking, corrected Noori spaces, and vector outline text
+**This checkpoint:** native Arabic kashida justification and contextual mark placement
 
 **Last full verification:** 2026-09-11
 
@@ -25,7 +25,7 @@ coordinates in the renderer.
 ### 2026-09-11: SAMPLE2 fidelity goal remains active
 
 - Target: at least **90%** in the unchanged 36 dpi grayscale ink-overlap audit.
-  Latest fresh result: **77.9%**, one matching A3 sheet. **Not complete.**
+  Latest fresh result: **80.2%**, one matching A3 sheet. **Not complete.**
 - Continue the requested order (rotation, fonts, effects, tables) and the 80/20
   approach. First passes cover all four; prioritize missing visible content.
 - Source line/frame caches now supply baselines, run extents, frame insets and
@@ -49,7 +49,10 @@ coordinates in the renderer.
   explicitly tracked boundary spaces raises vertical caption overlap to 88.1%.
 - Corrected Noori first/repeated-space handling. Outline text uses registered
   font vector paths, round joins/caps, and a 0.72 pt stroke, retaining ActualText.
-- Verification: full suite **94/94**, root typecheck, fresh audit and visual
+- Restored native kashida counts and weighted placement. Arabic body now has all
+  404 reference glyphs; its diagnostic overlap rose from 48.9% to 82.5%.
+  Native mark classes select offsets calibrated from each supplied font.
+- Verification: full suite **97/97**, root typecheck, fresh audit and visual
   inspection. Local font mode remains opt-in; reference PDFs are evaluation-only.
 - Largest remaining gaps: Pashto prefix 07 still needs its Noori Character table;
   Arabic marks and contextual spacing; remaining Noori metric differences;

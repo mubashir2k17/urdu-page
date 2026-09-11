@@ -51,6 +51,13 @@ describe("bounded v1 typography", () => {
     expect(footer.extraSpace).toBeCloseTo(2.9331666667);
   });
 
+  it("reads Arabic elongation counts without interpreting them as Latin tracking",()=>{
+    const story=decodeStyledStories(data,"urdu")!.stories[22]!;
+    expect(story.cachedLayout!.lines.map(line=>line.runs.reduce((sum,run)=>sum+(run.kashidaCount ?? 0),0)))
+      .toEqual([4,1,0,5,6,10,0]);
+    expect(story.cachedLayout!.lines.flatMap(line=>line.runs).every(run=>run.characterSpacing===undefined)).toBe(true);
+  });
+
   it("rejects truncated or mismatched tables", () => {
     expect(decodeStyledStories(data.subarray(0, 14700), "urdu")).toBeUndefined();
     const damaged = data.slice();

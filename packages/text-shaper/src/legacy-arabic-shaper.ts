@@ -4,6 +4,10 @@ export interface ArabicFormGlyph {
   id: number;
   fontId: string;
   advance: number;
+  kashidaWeight?: number;
+  markPosition?: "above"|"below";
+  aboveMarkOffset?: number;
+  belowMarkOffset?: number;
 }
 export interface ArabicLetterForms {
   isolated: ArabicFormGlyph;
@@ -21,7 +25,8 @@ export interface ArabicGlyphSubstitution {
 /** Contextual symbol-font forms, supplied by the decoded InPage root table. */
 export class LegacyArabicTextShaper implements TextShaper {
   constructor(private readonly forms: ReadonlyMap<string, ArabicLetterForms>, private readonly fallback: TextShaper,
-    private readonly substitutions: readonly (readonly ArabicGlyphSubstitution[])[] = []) {}
+    private readonly substitutions: readonly (readonly ArabicGlyphSubstitution[])[] = [],
+    private readonly kashidaGlyph?: ArabicFormGlyph) {}
 
   shape(input: ShapeInput): ShapedRun {
     const chars = [...input.text].flatMap(char=>
@@ -78,9 +83,10 @@ export class LegacyArabicTextShaper implements TextShaper {
       glyphs.push({id:base.id,fontId:base.fontId,cluster:cluster.cluster,xAdvance:0,yAdvance:0,xOffset:0,yOffset:0});
       for (const mark of cluster.marks) {
         glyphs.push({id:mark.id,fontId:mark.fontId,cluster:cluster.cluster,xAdvance:0,yAdvance:0,
-          xOffset:(base.advance-mark.advance)/2,yOffset:0});
+          xOffset:(base.advance-mark.advance)/2,yOffset:mark.markPosition==="above"?base.aboveMarkOffset ?? 0:mark.markPosition==="below"?base.belowMarkOffset ?? 0:0});
       }
       glyphs.at(-1)!.xAdvance = base.advance;
+      if(this.kashidaGlyph && base.kashidaWeight)glyphs.at(-1)!.kashida={...this.kashidaGlyph,weight:base.kashidaWeight};
     }
     return {logicalText:input.text,fontId:input.font.id,direction:input.direction,language:input.language,
       script:input.script,unitsPerEm:1000,glyphs,totalAdvance:glyphs.reduce((sum,glyph) => sum+glyph.xAdvance,0),missingGlyphCount:0};

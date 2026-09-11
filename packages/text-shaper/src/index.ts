@@ -34,6 +34,8 @@ export interface ShapedGlyph {
   cluster: number;
   xAdvance: number;
   yAdvance: number;
+  /** A native kashida can follow this cluster; metrics use the run scale. */
+  kashida?: {id:number;fontId:string;advance:number;weight:number};
   xOffset: number;
   yOffset: number;
 }

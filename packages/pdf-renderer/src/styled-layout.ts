@@ -1,5 +1,5 @@
 import type { PageObject, Story, TextStyle } from "@inpage/document-model";
-import type { ShapedRun } from "@inpage/text-shaper";
+import type { ShapedGlyph, ShapedRun } from "@inpage/text-shaper";
 import type { PdfBackend } from "./backend.js";
 
 type Direction = "ltr" | "rtl";
@@ -9,7 +9,7 @@ interface Token {text: string; style: TextStyle; run: ShapedRun; width: number; 
 
 /** Lay out source-sized runs; unavailable styles retain the existing fallback shaper. */
 export function drawStyledStory(story: Story, object: PageObject, backend: PdfBackend, shape: Shape, pageHeight: number,
-  saved?:{baseline:number;characterSpacing?:number;extraSpace?:number}): void {
+  saved?:{baseline:number;characterSpacing?:number;extraSpace?:number;kashidaCount?:number}): void {
   if(story.cachedLayout && story.cachedLayout.frameId===object.id && !saved) {
     const cache=story.cachedLayout;
     const insetX=cache.columns===1?Math.max(0,(object.bounds.widthPoints-cache.columnWidth)/2):0;
@@ -31,7 +31,7 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
           yPoints:object.bounds.yPoints-localX*Math.sin(angle)+localTop*Math.cos(angle),
           widthPoints:run.width,heightPoints:line.height}};
         const before=line.paragraphStart ? run.runs[0]?.style?.paragraphBefore ?? 0 : 0;
-        drawStyledStory(group,frame,backend,shape,pageHeight,{baseline:(run.baseline ?? line.baseline)+before,characterSpacing:run.characterSpacing ?? 0,extraSpace:run.extraSpace ?? 0});
+        drawStyledStory(group,frame,backend,shape,pageHeight,{baseline:(run.baseline ?? line.baseline)+before,characterSpacing:run.characterSpacing ?? 0,extraSpace:run.extraSpace ?? 0,kashidaCount:run.kashidaCount ?? 0});
       }
       top+=line.height;
     }
@@ -81,6 +81,7 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
       continue;
     }
     const baseDirection: Direction = paragraph.runs.some(run => /[\u0600-\u06ff]/.test(run.text)) ? "rtl" : "ltr";
+    const preserveBoundarySpaces=hasSavedSpacing || !!saved?.kashidaCount;
     const tokens: Token[] = [];
     const sources: {text:string;style:TextStyle;scalarStyles:TextStyle[]}[] = [];
     for (const source of paragraph.runs) {
@@ -124,6 +125,28 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
           width:pieces.reduce((sum,piece) => sum+backend.measureShapedRun(piece.run,style.fontSize)*(style.horizontalScale ?? 1),0)});
       }
     }
+    if(saved?.kashidaCount) {
+      // Native distribution: weighted floor allocation, then round-robin in reading order.
+      const candidates=tokens.flatMap(item=>item.pieces.flatMap(piece=>piece.run.glyphs.filter(glyph=>glyph.kashida)
+        .map(glyph=>({glyph,piece,item,count:0}))).sort((a,b)=>a.glyph.cluster-b.glyph.cluster));
+      const weight=candidates.reduce((sum,item)=>sum+item.glyph.kashida!.weight,0);
+      if(weight>0) {
+        let remaining=saved.kashidaCount;
+        for(const candidate of candidates){candidate.count=Math.floor(saved.kashidaCount*candidate.glyph.kashida!.weight/weight);remaining-=candidate.count;}
+        for(let i=0;remaining>0;i++,remaining--)candidates[i%candidates.length]!.count++;
+        const counts=new Map(candidates.map(item=>[item.glyph,item.count]));
+        for(const item of tokens)for(const piece of item.pieces) {
+          piece.run={...piece.run,glyphs:piece.run.glyphs.flatMap(glyph=>{
+            const extension=glyph.kashida,count=counts.get(glyph) ?? 0;
+            if(!extension || !count)return [glyph];
+            return [glyph,...Array.from({length:count},():ShapedGlyph=>({id:extension.id,fontId:extension.fontId,cluster:glyph.cluster,
+              xAdvance:extension.advance,yAdvance:0,xOffset:0,yOffset:0}))];
+          })};
+          piece.run.totalAdvance=piece.run.glyphs.reduce((sum,glyph)=>sum+glyph.xAdvance,0);
+        }
+        for(const item of tokens)item.width=item.pieces.reduce((sum,piece)=>sum+backend.measureShapedRun(piece.run,piece.style.fontSize)*(piece.style.horizontalScale ?? 1),0);
+      }
+    }
     if (!tokens.length) { usedHeight += baseStyle.lineHeight ?? baseStyle.fontSize; continue; }
     const lines: Token[][] = [];
     let line: Token[] = [];
@@ -133,10 +156,10 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
         while (line.length && /^\s+$/.test(line.at(-1)!.text)) line.pop();
         lines.push(line); line = []; lineWidth = 0;
       }
-      if (!hasSavedSpacing && !line.length && /^\s+$/.test(token.text)) continue;
+      if (!preserveBoundarySpaces && !line.length && /^\s+$/.test(token.text)) continue;
       line.push(token); lineWidth += token.width;
     }
-    while (!hasSavedSpacing && line.length && /^\s+$/.test(line.at(-1)!.text)) line.pop();
+    while (!preserveBoundarySpaces && line.length && /^\s+$/.test(line.at(-1)!.text)) line.pop();
     if (line.length) lines.push(line);
     for (const [index, items] of lines.entries()) {
       const fontSize = Math.max(...items.map(item => item.style.fontSize));
