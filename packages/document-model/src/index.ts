@@ -113,7 +113,7 @@ export interface Story {
     columnWidth:number;
     contentHeight:number;
     columns:number;
-    lines:{height:number;baseline:number;width:number;paragraphStart?:boolean;runs:{x:number;width:number;baseline?:number;direction:"ltr"|"rtl";runs:TextRun[]}[]}[];
+    lines:{height:number;baseline:number;width:number;paragraphStart?:boolean;runs:{x:number;width:number;baseline?:number;characterSpacing?:number;extraSpace?:number;direction:"ltr"|"rtl";runs:TextRun[]}[]}[];
   };
 }
 

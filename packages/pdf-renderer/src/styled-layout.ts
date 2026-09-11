@@ -9,7 +9,7 @@ interface Token {text: string; style: TextStyle; run: ShapedRun; width: number; 
 
 /** Lay out source-sized runs; unavailable styles retain the existing fallback shaper. */
 export function drawStyledStory(story: Story, object: PageObject, backend: PdfBackend, shape: Shape, pageHeight: number,
-  saved?:{baseline:number}): void {
+  saved?:{baseline:number;characterSpacing?:number;extraSpace?:number}): void {
   if(story.cachedLayout && story.cachedLayout.frameId===object.id && !saved) {
     const cache=story.cachedLayout;
     const insetX=cache.columns===1?Math.max(0,(object.bounds.widthPoints-cache.columnWidth)/2):0;
@@ -31,12 +31,13 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
           yPoints:object.bounds.yPoints-localX*Math.sin(angle)+localTop*Math.cos(angle),
           widthPoints:run.width,heightPoints:line.height}};
         const before=line.paragraphStart ? run.runs[0]?.style?.paragraphBefore ?? 0 : 0;
-        drawStyledStory(group,frame,backend,shape,pageHeight,{baseline:(run.baseline ?? line.baseline)+before});
+        drawStyledStory(group,frame,backend,shape,pageHeight,{baseline:(run.baseline ?? line.baseline)+before,characterSpacing:run.characterSpacing ?? 0,extraSpace:run.extraSpace ?? 0});
       }
       top+=line.height;
     }
     return;
   }
+  const hasSavedSpacing=!!(saved && (saved.characterSpacing || saved.extraSpace));
   const {xPoints:x, yPoints:top, widthPoints:width, heightPoints:height} = object.bounds;
   const columns = object.columnCount ?? 1;
   const gap = columns > 1 ? 9 : 0;
@@ -132,10 +133,10 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
         while (line.length && /^\s+$/.test(line.at(-1)!.text)) line.pop();
         lines.push(line); line = []; lineWidth = 0;
       }
-      if (!line.length && /^\s+$/.test(token.text)) continue;
+      if (!hasSavedSpacing && !line.length && /^\s+$/.test(token.text)) continue;
       line.push(token); lineWidth += token.width;
     }
-    while (line.length && /^\s+$/.test(line.at(-1)!.text)) line.pop();
+    while (!hasSavedSpacing && line.length && /^\s+$/.test(line.at(-1)!.text)) line.pop();
     if (line.length) lines.push(line);
     for (const [index, items] of lines.entries()) {
       const fontSize = Math.max(...items.map(item => item.style.fontSize));
@@ -147,16 +148,36 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
       if(saved && contentWidth>0 && columnWidth>0) {
         // Saved runs supply their measured endpoints. Preserve outlines and fit
         // glyph advances to that source extent while native per-glyph metrics evolve.
+        // These source adjustments precede fitting to the saved endpoint.
+        if(hasSavedSpacing)for(const item of items) {
+          for(const piece of item.pieces) {
+            const scale=piece.style.fontSize*(piece.run.fontSizeScale ?? 1)*(piece.style.horizontalScale ?? 1)/piece.run.unitsPerEm;
+            const adjustment=((saved.characterSpacing ?? 0)+(/^\s+$/.test(item.text)?saved.extraSpace ?? 0:0))/scale;
+            piece.run={...piece.run,totalAdvance:piece.run.totalAdvance+adjustment*piece.run.glyphs.length,
+              glyphs:piece.run.glyphs.map(glyph=>({...glyph,xAdvance:glyph.xAdvance+adjustment}))};
+          }
+          item.width=item.pieces.reduce((sum,piece)=>sum+backend.measureShapedRun(piece.run,piece.style.fontSize)*(piece.style.horizontalScale ?? 1),0);
+        }
+        contentWidth=items.reduce((sum,item)=>sum+item.width,0);
         const ratio=columnWidth/contentWidth;
         const wordSpaces=items.filter(item=>/^\s+$/.test(item.text));
         const spaceWidth=wordSpaces.reduce((sum,item)=>sum+item.width,0);
         const fitSpaces=baseDirection==="rtl" && items.every(item=>!!item.style.arabicFontName) &&
-          spaceWidth>0 && spaceWidth+columnWidth-contentWidth>=0;
+          wordSpaces.length>0 && spaceWidth+columnWidth-contentWidth>=-0.001;
         // A standalone symbol's saved extent is its font cell measurement;
         // fit the symbol itself when the host provides a metrically different face.
         const fitSymbol=items.length===1 && items[0]!.style.latinFontName==="Symbol" &&
           items[0]!.pieces.reduce((sum,piece)=>sum+piece.run.glyphs.length,0)===1;
         for(const item of items) {
+          if(fitSpaces && spaceWidth===0 && /^\s+$/.test(item.text)) {
+            const width=Math.max(0,columnWidth-contentWidth)/wordSpaces.length;
+            item.width=width;
+            const piece=item.pieces.at(-1);
+            if(!piece)continue;
+            const advance=width/(piece.style.fontSize*(piece.run.fontSizeScale ?? 1)*(piece.style.horizontalScale ?? 1))*piece.run.unitsPerEm;
+            piece.run={...piece.run,totalAdvance:advance,glyphs:piece.run.glyphs.map((glyph,index)=>({...glyph,xAdvance:index===piece.run.glyphs.length-1?advance:0}))};
+            continue;
+          }
           const itemRatio=fitSpaces ? (/^\s+$/.test(item.text)?(spaceWidth+columnWidth-contentWidth)/spaceWidth:1) : ratio;
           item.width*=itemRatio;
           for(const piece of item.pieces)piece.run=fitSymbol
@@ -175,13 +196,14 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
       let pen = alignedColumn * (columnWidth + gap) + offset;
       const ordered = baseDirection === "rtl" ? [...items].reverse() : items;
       for (const item of ordered) {
+        const itemStart=pen;
         for (const piece of item.pieces) {
           const localY = -usedHeight - (saved?.baseline ?? fontSize) - (piece.style.baselineShift ?? 0);
           backend.drawShapedRun(piece.run, x + pen * Math.cos(radians) - localY * Math.sin(radians),
             pageHeight - top + pen * Math.sin(radians) + localY * Math.cos(radians),piece.style.fontSize,rotation,piece.style);
           pen += backend.measureShapedRun(piece.run,piece.style.fontSize)*(piece.style.horizontalScale ?? 1);
         }
-        pen += /^\s+$/.test(item.text) ? extraSpace : 0;
+        pen = itemStart+item.width+(/^\s+$/.test(item.text) ? extraSpace : 0);
       }
       usedHeight += leading;
     }

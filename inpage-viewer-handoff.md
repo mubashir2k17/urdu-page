@@ -1,16 +1,16 @@
 # Handoff — InPage `.inp` → PDF Converter
 
-**Prepared:** 2026-09-10
+**Prepared:** 2026-09-11
 
 **Repository:** `/Users/mubashirsmacbook/projects/inpage-viewer`
 
 **Branch:** `main`
 
-**Previous committed milestone:** `53dc653 feat(render): apply saved InPage line layout`
+**Previous committed milestone:** `5075f6a fix(render): restore Sindhi and native hatch tiling`
 
-**This checkpoint:** Sindhi text, Arabic word spacing, and native PDF hatch tiling
+**This checkpoint:** saved Latin tracking, corrected Noori spaces, and vector outline text
 
-**Last full verification:** 2026-09-10
+**Last full verification:** 2026-09-11
 
 ## Objective
 
@@ -22,10 +22,10 @@ coordinates in the renderer.
 
 ## Current status
 
-### 2026-09-10: SAMPLE2 fidelity goal remains active
+### 2026-09-11: SAMPLE2 fidelity goal remains active
 
 - Target: at least **90%** in the unchanged 36 dpi grayscale ink-overlap audit.
-  Latest fresh result: **76.0%**, one matching A3 sheet. **Not complete.**
+  Latest fresh result: **77.9%**, one matching A3 sheet. **Not complete.**
 - Continue the requested order (rotation, fonts, effects, tables) and the 80/20
   approach. First passes cover all four; prioritize missing visible content.
 - Source line/frame caches now supply baselines, run extents, frame insets and
@@ -45,12 +45,16 @@ coordinates in the renderer.
   contextual slots. Mixed paragraphs retain their switch back to Urdu.
 - Pattern 3 uses a PDF tiling brush. Flattened hatch paths caused different
   rasterizer cell rounding; restoring tiling raised the audit from 74.1% to 76.0%.
-- Verification: full suite **90/90**, root typecheck, fresh audit and visual
+- Recovered separate Latin character/space adjustments in the cache. Preserving
+  explicitly tracked boundary spaces raises vertical caption overlap to 88.1%.
+- Corrected Noori first/repeated-space handling. Outline text uses registered
+  font vector paths, round joins/caps, and a 0.72 pt stroke, retaining ActualText.
+- Verification: full suite **94/94**, root typecheck, fresh audit and visual
   inspection. Local font mode remains opt-in; reference PDFs are evaluation-only.
 - Largest remaining gaps: Pashto prefix 07 still needs its Noori Character table;
   Arabic marks and contextual spacing; remaining Noori metric differences;
-  remaining border artwork and outline thickness. Glyph-position diagnostics also
-  reveal accumulated native device rounding in line heights.
+  remaining border artwork. Line-height rounding alone was tested and rejected.
+  The embedded Pashto table is now located, but its shaper remains unfinished.
 - Source evidence and next investigation: `docs/research/sample2-layout-recovery.md`.
   Earlier sections below are historical milestones, not current limitations.
 

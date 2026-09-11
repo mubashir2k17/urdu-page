@@ -41,6 +41,16 @@ describe("bounded v1 typography", () => {
     expect(decodeStyledStories(corrupt,"urdu")!.stories.every(story=>!story.cachedLayout)).toBe(true);
   });
 
+  it("recovers separate Latin character and space adjustments",()=>{
+    const decoded=decodeStyledStories(data,"urdu")!;
+    const caption=decoded.stories.find(story=>story.cachedLayout?.frameId===58)!.cachedLayout!.lines[0]!.runs;
+    expect(caption[0]).toMatchObject({characterSpacing:1.0455,extraSpace:1.5684});
+    expect(caption[0]!.runs.map(run=>run.text).join("").endsWith("   ")).toBe(true);
+    const footer=decoded.stories.find(story=>story.cachedLayout?.frameId===57)!.cachedLayout!.lines[0]!.runs[0]!;
+    expect(footer.characterSpacing).toBe(1.955);
+    expect(footer.extraSpace).toBeCloseTo(2.9331666667);
+  });
+
   it("rejects truncated or mismatched tables", () => {
     expect(decodeStyledStories(data.subarray(0, 14700), "urdu")).toBeUndefined();
     const damaged = data.slice();

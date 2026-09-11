@@ -48,10 +48,10 @@ describe("legacy whole-word shaping", () => {
     ],true);
     const single=shaper.shape({...input,text:"میں ا"});
     expect(single.glyphs[0]!.xAdvance).toBe(130);
-    expect(single.glyphs[1]!.xAdvance).toBe(150);
+    expect(single.glyphs[1]!.xAdvance).toBe(0);
     const double=shaper.shape({...input,text:"میں  ا"});
     expect(double.glyphs[0]!.xAdvance).toBe(180);
-    expect(double.glyphs[1]!.xAdvance).toBe(300);
+    expect(double.glyphs[1]!.xAdvance).toBe(150);
   });
 
   it("keeps unmatched words and marked variants on HarfBuzz", () => {

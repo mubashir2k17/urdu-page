@@ -65,9 +65,9 @@ export class LegacyLigatureTextShaper implements TextShaper {
           id: entry.overlay.glyphId, fontId: entry.overlay.fontId, xAdvance: advance }] : [primary];
       }
       if (this.joiningSegments && /^ +$/.test(text)) {
-        // 0x40a356 uses 150/1000 em for a normal Noori word space.
+        // Native Noori defaults use zero for the first space; repeats add 150/1000 em.
         const space = this.fallback.shape({...input,text:" "}).glyphs[0]!;
-        return [{id: space.id, cluster, xAdvance: text.length * 150 * fallback.unitsPerEm / 1000,
+        return [{id: space.id, cluster, xAdvance: (text.length-1) * 150 * fallback.unitsPerEm / 1000,
           yAdvance: 0, xOffset: 0, yOffset: 0}];
       }
       return this.fallback.shape({ ...input, text }).glyphs.map((glyph) => ({

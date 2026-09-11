@@ -24,6 +24,10 @@ import {
   setTextRenderingMode,
   TextRenderingMode,
   setLineWidth,
+  setLineCap,
+  setLineJoin,
+  LineCapStyle,
+  LineJoinStyle,
   moveTo,
   lineTo,
   closePath,
@@ -34,7 +38,8 @@ import {
   clipEvenOdd,
   endPath,
 } from "pdf-lib";
-import fontkit from "@pdf-lib/fontkit";
+import fontkit, {type Font} from "@pdf-lib/fontkit";
+import {glyphOutline} from "./glyph-outline.js";
 import type { PdfBackend, TextAppearance } from "./backend.js";
 import { dibToPng } from "./dib-to-png.js";
 
@@ -49,6 +54,8 @@ export class PdfLibBackend implements PdfBackend {
   private currentPage: PDFPage | null = null;
   private currentFontKey: PDFName | null = null;
   private readonly fonts = new Map<string, PDFFont>();
+  private readonly outlineFonts = new Map<string,Font>();
+  private readonly fontBytes = new Map<string,Uint8Array>();
   private readonly pageFontKeys = new Map<string, PDFName>();
   private readonly images = new Map<string, Awaited<ReturnType<PDFDocument["embedPng"]>>>();
 
@@ -70,11 +77,13 @@ export class PdfLibBackend implements PdfBackend {
     this.font = await this.doc.embedFont(fontBytes, { subset: false });
     this.fontId = fontId;
     this.fonts.set(fontId, this.font);
+    this.fontBytes.set(fontId,fontBytes);
   }
 
   async registerFont(fontBytes: Uint8Array, fontId: string): Promise<void> {
     if (!fontId || this.fonts.has(fontId)) throw new Error(`Duplicate or empty PDF font identity: ${fontId}`);
     this.fonts.set(fontId, await this.doc.embedFont(fontBytes, { subset: false }));
+    this.fontBytes.set(fontId,fontBytes);
   }
 
   addPage(width: number, height: number): void {
@@ -129,13 +138,13 @@ export class PdfLibBackend implements PdfBackend {
       pushGraphicsState(),
       setFillingRgbColor(shade,shade,shade),
       setStrokingRgbColor(shade,shade,shade),
-      setLineWidth(0.5),
+      setLineWidth(appearance.outline ? 0.72 : 0.5),
       PDFOperator.of(PDFOperatorNames.BeginMarkedContentSequence, [
         PDFName.of("Span"),
         `<< /ActualText ${actualText.toString()} >>`,
       ]),
       beginText(),
-      setTextRenderingMode(appearance.outline ? TextRenderingMode.Outline : TextRenderingMode.Fill),
+      setTextRenderingMode(appearance.outline ? TextRenderingMode.Invisible : TextRenderingMode.Fill),
       setFontAndSize(runFontKey, size),
     );
 
@@ -167,7 +176,25 @@ export class PdfLibBackend implements PdfBackend {
       penY += glyph.yAdvance * scale;
     }
 
-    this.currentPage.pushOperators(endText(), endMarkedContent(),popGraphicsState());
+    this.currentPage.pushOperators(endText());
+    if(appearance.outline) {
+      this.currentPage.pushOperators(setLineCap(LineCapStyle.Round),setLineJoin(LineJoinStyle.Round));
+      penX=0;penY=0;
+      for(const glyph of run.glyphs) {
+        const id=glyph.fontId ?? run.fontId;
+        let face=this.outlineFonts.get(id);
+        if(!face){face=fontkit.create(this.fontBytes.get(id)!);this.outlineFonts.set(id,face);}
+        const glyphScale=size/face.unitsPerEm;
+        const transform=(a:number,b:number):[number,number]=>{
+          const localX=(penX+glyph.xOffset*scale+a*glyphScale)*horizontalScale;
+          const localY=penY+glyph.yOffset*scale+b*glyphScale;
+          return [x+localX*cosine-localY*sine,y+localX*sine+localY*cosine];
+        };
+        this.currentPage.pushOperators(...glyphOutline(face.getGlyph(glyph.id).path,transform),stroke());
+        penX+=glyph.xAdvance*scale;penY+=glyph.yAdvance*scale;
+      }
+    }
+    this.currentPage.pushOperators(endMarkedContent(),popGraphicsState());
   }
 
   async drawImage(

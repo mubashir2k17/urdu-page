@@ -2,8 +2,8 @@
 
 The active target is 90% overlap against `tests/SAMPLE2.pdf`, using the existing
 grayscale ink intersection/union audit at 36 dpi with no registration correction.
-The latest fresh result is **76.0%** (one A3 sheet, source text count 3533, PDF
-text count 3146 versus reference 2138). It does not meet the target. The source
+The latest fresh result is **77.9%** (one A3 sheet, source text count 3533, PDF
+text count 3158 versus reference 2138). It does not meet the target. The source
 INP composition is A4 and the reference export uses an A3 sheet.
 
 ## Implemented source evidence
@@ -215,4 +215,63 @@ rounding each line to a 600-dpi device grid. This is a hypothesis for the next
 implementation; no global position correction or metric registration is applied.
 `tmp/glyph-deltas.txt` and `tmp/glyph-positions.json` hold the diagnostic output.
 
-The latest visual preview is `tmp/pdfs/sample2-76.png`; the 90% goal is active.
+That checkpoint preview is `tmp/pdfs/sample2-76.png`; see the next section for the latest result.
+
+
+## 2026-09-11: Latin spacing and Noori outlines
+
+Fresh audit: **0.7790741554 (77.9%)**. The 90% target remains unmet.
+The new preview is `tmp/pdfs/sample2-78.png`. No reference geometry or images
+are used as renderer inputs.
+
+Latin cache kind 7f80 has additional spacing fields: +16 is the space count,
++18 is per-character spacing (/2000 pt), and +22 is total additional width
+across spaces (/2000 pt). Both ordinary and nested cache readers preserve
+these fields. The vertical caption's first run stores 1.0455 pt per character
+and 15.684 pt across ten spaces. The footer stores 1.955 pt per character and
+26.3985 pt across nine spaces. Apply character and space adjustments before
+fitting residual font-metric differences to the saved endpoint. Preserve
+boundary spaces in these explicitly spaced runs: the first caption run ends
+with three spaces that contribute to its extent. Plain runs retain their
+existing boundary-space handling.
+
+This raises the vertical caption's diagnostic overlap to 88.1%. Detailed
+reference TJ advances confirm most corrected caption positions are within
+0.1–0.2 pt, versus accumulated multi-point displacement before. A trial that
+preserved every run's boundary spaces regressed the page and was removed;
+equal tracking inferred only from the final width also failed to improve it.
+
+The native Noori space routine distinguishes Noori Nastaliq from other Arabic
+families. At 0x40a348–0x40a39f, Noori uses configurable first/repeated space
+values; the 150-unit constant is the other-family branch. At 0x40a690–0x40a6ce,
+repeated spaces select the second width and reset the previous kerning bound.
+The recovered default Noori profile uses zero for the first space, then
+150/1000 em for each repeat. This is independently consistent with the
+outline run's saved width: 2822 units × 55/1000 = 155.21 pt, exactly its saved
+extent. Adding 150 for its ordinary space had forced an incorrect 0.95 advance
+scale across the entire run. Saved-width fitting now supports zero-width word
+spaces and retains glyph advances when distributing positive remaining width.
+
+Native outline text is stroked vector paths with round joins/caps and a 0.72 pt
+stroke (0.96 under the export's 0.75 matrix). The backend obtains outlines from
+the same registered font and converts quadratic curves to PDF cubic curves,
+applying glyph offsets, font scale, horizontal scale, and frame rotation.
+Invisible positioned text with ActualText preserves search/copy semantics.
+This avoids text-rasterizer grid fitting for decorative outlines. Diagnostic
+outline overlap is now 58.4%; column and specimen regions are 64.3% and 66.2%.
+These regional selections are diagnostics; whole-page overlap is the gate.
+
+Line-height rounding to 0.12 pt alone did not improve overall fidelity and was
+removed. A trial subtracting space advance from the kerning bound also
+regressed the overall result and was removed. Neither correction is enabled.
+
+Pashto investigation located the actual embedded Noori Character tables:
+0x4fef8c points to 0x4e7928; the alternate table is at 0x4f34b0, selected through
+0x4fef84/0x4fef88. Tables contain 1091 records of 44 bytes. Function 0x413060
+selects contextual records; 0x414b90 emits their glyph pieces and marks.
+NOORIC uses piece-based character shaping rather than the Arabic root slots.
+The missing NASTALIQ.TBL filename does not mean the default table is absent.
+Ignored diagnostic atlas: `tmp/pdfs/nooric-all.png`; PE reader:
+`tmp/reverse-engineering/pe.py`. This remains unfinished, alongside Arabic
+contextual substitutions and precise Noori metrics. Avoid another blind
+Urdu-root-to-NOORIC mapping trial.

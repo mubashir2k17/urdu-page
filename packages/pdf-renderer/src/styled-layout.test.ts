@@ -5,7 +5,7 @@ import type {PdfBackend} from "./backend.js";
 import {drawStyledStory} from "./styled-layout.js";
 
 describe("saved source layout",()=>{
-  it.each(["Aasaar","ZoharSindhi"])("preserves %s character advances while fitting word spaces",arabicFontName=>{
+  it.each(["Aasaar","ZoharSindhi","Noori Nastaliq"])("preserves %s character advances while fitting word spaces",arabicFontName=>{
     const draw=vi.fn<PdfBackend["drawShapedRun"]>();
     const backend:PdfBackend={addPage(){},measureShapedRun:(run,size)=>run.totalAdvance*size/run.unitsPerEm,
       drawShapedRun:draw,async drawImage(){},drawLine(){},drawRectangle(){},async save(){return new Uint8Array();}};
@@ -13,9 +13,11 @@ describe("saved source layout",()=>{
     const story:Story={index:0,startOffset:0,endOffset:0,paragraphs:[],cachedLayout:{frameId:1,columnWidth:60,
       contentHeight:40,columns:1,lines:[{height:40,baseline:25,width:60,runs:[{x:0,width:60,direction:"rtl",
         runs:[{kind:"text",text:"ب ت",style:{fontSize:20,arabicFontName}}]}]}]}};
-    const shape=(text:string):ShapedRun=>({logicalText:text,fontId:"test",direction:"rtl",language:"ar",script:"arab",
-      unitsPerEm:1000,totalAdvance:500,missingGlyphCount:0,
-      glyphs:[{id:1,cluster:0,xAdvance:500,yAdvance:0,xOffset:0,yOffset:0}]});
+    const shape=(text:string):ShapedRun=>{
+      const glyphs=[...text].map((char,cluster)=>({id:1,cluster,xAdvance:char===" " && arabicFontName==="Noori Nastaliq"?0:500,yAdvance:0,xOffset:0,yOffset:0})).reverse();
+      return {logicalText:text,fontId:"test",direction:"rtl",language:"ar",script:"arab",
+        unitsPerEm:1000,totalAdvance:glyphs.reduce((sum,glyph)=>sum+glyph.xAdvance,0),missingGlyphCount:0,glyphs};
+    };
     drawStyledStory(story,object,backend,shape,200);
     expect(draw.mock.calls.find(call=>call[0].logicalText==="ب")![1]).toBe(60);
     expect(draw.mock.calls.filter(call=>call[0].logicalText.trim()).map(call=>call[0].totalAdvance)).toEqual([500,500]);
@@ -33,6 +35,24 @@ describe("saved source layout",()=>{
       glyphs:[...text].map((_,cluster)=>({id:1,cluster,xAdvance:500,yAdvance:0,xOffset:0,yOffset:0}))});
     drawStyledStory(story,object,backend,shape,200);
     expect(draw.mock.calls.find(call=>call[0].logicalText==="B")![1]).toBe(50);
+  });
+  it("retains trailing spaces and separate character/space tracking in a rotated saved run",()=>{
+    const draw=vi.fn<PdfBackend["drawShapedRun"]>();
+    const backend:PdfBackend={addPage(){},measureShapedRun:(run,size)=>run.totalAdvance*size/run.unitsPerEm,
+      drawShapedRun:draw,async drawImage(){},drawLine(){},drawRectangle(){},async save(){return new Uint8Array();}};
+    const object:PageObject={id:1,kind:"text",rotationDegrees:90,bounds:{xPoints:10,yPoints:20,widthPoints:36,heightPoints:40},sourceOffset:0,confidence:"high"};
+    const story:Story={index:0,startOffset:0,endOffset:0,paragraphs:[],cachedLayout:{frameId:1,columnWidth:36,
+      contentHeight:40,columns:1,lines:[{height:40,baseline:25,width:36,runs:[{x:0,width:36,direction:"ltr",characterSpacing:1,extraSpace:2,
+        runs:[{kind:"text",text:"A B  ",style:{fontSize:10,latinFontName:"Arial"}}]}]}]}};
+    const shape=(text:string):ShapedRun=>({logicalText:text,fontId:"test",direction:"ltr",language:"en",script:"latn",
+      unitsPerEm:1000,totalAdvance:500*text.length,missingGlyphCount:0,
+      glyphs:[...text].map((_,cluster)=>({id:1,cluster,xAdvance:500,yAdvance:0,xOffset:0,yOffset:0}))});
+    drawStyledStory(story,object,backend,shape,200);
+    expect(draw.mock.calls.map(call=>call[0].logicalText).join("")).toBe("A B  ");
+    const b=draw.mock.calls.find(call=>call[0].logicalText==="B")!;
+    expect(b[1]).toBeCloseTo(35);
+    expect(b[2]).toBeCloseTo(194);
+    expect(draw.mock.calls.at(-1)![0].totalAdvance).toBe(1600);
   });
   it("draws overlapping runs even when tracking gives them zero or negative advance",()=>{
     const draw=vi.fn<PdfBackend["drawShapedRun"]>();
