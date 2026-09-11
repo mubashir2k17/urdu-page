@@ -9,6 +9,27 @@ const input: ShapeInput = {
 const entry = { text: "میں", fontId: "bank", glyphId: 17, advance: 1400, unitsPerEm: 2000 };
 
 describe("legacy whole-word shaping", () => {
+  it("uses native digit glyphs in source reading order inside numeric sequences",()=>{
+    const shaper=new LegacyLigatureTextShaper([
+      {...entry,text:"۵",glyphId:5},{...entry,text:"۹",glyphId:9},
+    ],true);
+    const run=shaper.shape({...input,text:"۵۹"});
+    expect(run.glyphs.map(glyph=>[glyph.fontId,glyph.id,glyph.cluster])).toEqual([["bank",9,1],["bank",5,0]]);
+    expect(run.logicalText).toBe("۵۹");
+  });
+
+  it("applies explicit adjacent pairs before boundary kerning, including overlays",()=>{
+    const shaper=new LegacyLigatureTextShaper([
+      {text:"ا",fontId:"alef",glyphId:1,advance:180,unitsPerEm:1000,kerning:{right:11,left:-168,clearance:85}},
+      {text:"یک",fontId:"body",glyphId:2,advance:1109,unitsPerEm:1000,overlay:{fontId:"dots",glyphId:3},
+        kerning:{right:858,left:-41,clearance:85,after:[{fontId:"alef",glyphId:1,adjustment:-200}]}},
+    ],true);
+    const together=shaper.shape({...input,text:"ایک"});
+    expect(together.glyphs.map(glyph=>[glyph.id,glyph.xAdvance])).toEqual([[2,0],[3,909],[1,180]]);
+    const separated=shaper.shape({...input,text:"ا یک"});
+    expect(separated.glyphs.find(glyph=>glyph.id===3)?.xAdvance).toBe(1109);
+  });
+
   it("keeps punctuation outside joining words and retains joining hamza terminals", () => {
     const shaper = new LegacyLigatureTextShaper([
       entry, {...entry, text:"و",glyphId:18}, {...entry,text:"یءر",glyphId:19},

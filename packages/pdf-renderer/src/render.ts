@@ -27,6 +27,8 @@ export interface FallbackFont {
 
 export interface RenderTypography {
   shaper: TextShaper;
+  /** Optional integer printer grid for glyph origins; omitted retains full precision. */
+  glyphPositionDpi?: number;
   /** Additional fonts referenced by glyph fontId overrides. */
   fonts: ShapeFont[];
   resolveFont?: (style: TextStyle, direction: "ltr" | "rtl") => ShapeFont | undefined;
@@ -64,7 +66,7 @@ export async function renderPdf(
       "No font configured. Pass a fallbackFont or register a FontProvider.",
     );
   }
-  const backend = await PdfLibBackend.create();
+  const backend = await PdfLibBackend.create(typography?.glyphPositionDpi);
   const shapeFont = { id: "embedded-fallback", bytes: fontBytes };
   await backend.setFont(fontBytes, shapeFont.id);
   for (const font of typography?.fonts ?? []) {

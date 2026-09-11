@@ -6,7 +6,8 @@ export interface LegacyLigatureGlyph {
   glyphId: number;
   advance: number;
   unitsPerEm: number;
-  kerning?: {right:number;left:number;clearance:number};
+  kerning?: {right:number;left:number;clearance:number;
+    after?: readonly {fontId:string;glyphId:number;adjustment:number}[]};
   /** Optional second component drawn at the same origin with no extra advance. */
   overlay?: { fontId: string; glyphId: number };
 }
@@ -39,7 +40,7 @@ export class LegacyLigatureTextShaper implements TextShaper {
     const fallback = this.fallback.shape(input);
     if (input.direction !== "rtl" || input.script !== "arab") return fallback;
     // Whitespace boundaries preserve entire words and combining sequences.
-    const boundaries = this.joiningSegments ? /[\p{L}\p{M}]+|\s+|[^\p{L}\p{M}\s]+/gu : /\S+|\s+/gu;
+    const boundaries = this.joiningSegments ? /[\p{L}\p{M}]+|\s+|[\u06f0-\u06f9]|[^\p{L}\p{M}\s\u06f0-\u06f9]+/gu : /\S+|\s+/gu;
     const tokens = [...input.text.matchAll(boundaries)].flatMap(match => {
       const text = match[0];
       if (!this.joiningSegments || this.words.has(text) || !/^[\u0621-\u06d3]+$/u.test(text)) {
@@ -76,6 +77,7 @@ export class LegacyLigatureTextShaper implements TextShaper {
     });
     if (this.joiningSegments) {
       let previousLeft: number | undefined;
+      let previousGlyph: ShapedGlyph | undefined;
       for (let end = glyphs.length; end > 0;) {
         let start = end - 1;
         while (start > 0 && glyphs[start - 1]!.cluster === glyphs[end - 1]!.cluster) start--;
@@ -84,9 +86,13 @@ export class LegacyLigatureTextShaper implements TextShaper {
         if (entry?.kerning) {
           const scale = fallback.unitsPerEm / entry.unitsPerEm;
           const carrier = glyphs[end - 1]!;
+          const pair=entry.kerning.after?.find(pair=>pair.fontId===previousGlyph?.fontId && pair.glyphId===previousGlyph.id);
+          if(pair)carrier.xAdvance=Math.max(0,carrier.xAdvance+pair.adjustment*scale);
           if (previousLeft !== undefined) carrier.xAdvance = Math.min(carrier.xAdvance, Math.max(0,entry.kerning.right * scale + previousLeft));
           previousLeft = (entry.kerning.clearance-entry.kerning.left)*scale;
+          previousGlyph=glyph;
         } else {
+          previousGlyph=undefined;
           const scalarText = [...input.text];
           // A single space preserves the previous boundary; repeated spaces
           // reset it (0x40a690–0x40a6ce).

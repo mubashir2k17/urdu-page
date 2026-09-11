@@ -11,6 +11,32 @@ const run = shaper.shape({ text: "ایک متن", direction: "rtl", script: "ara
   font: { id: "embedded-fallback", bytes } });
 
 describe("PDF font banks", () => {
+  it("fills non-embedded font outlines and retains searchable text in mixed runs", async () => {
+    const pathBytes=Uint8Array.from(bytes);
+    const data=new DataView(pathBytes.buffer);
+    for(let i=0;i<data.getUint16(4);i++) {
+      const entry=12+16*i;
+      if(data.getUint32(entry)===0x4f532f32) data.setUint16(data.getUint32(entry+8)+8,2);
+    }
+    const backend=await PdfLibBackend.create();
+    await backend.setFont(bytes);
+    await backend.registerFont(pathBytes,"paths");
+    backend.addPage(300,300);
+    backend.drawShapedRun({...run,glyphs:run.glyphs.map((glyph,index)=>index===1?{...glyph,fontId:"paths"}:glyph)},30,100,12,90);
+    const pdf=await PDFDocument.load(await backend.save());
+    const page=pdf.getPage(0),contents=page.node.Contents();
+    if(!(contents instanceof PDFArray))throw Error("Missing content stream");
+    const operators=new TextDecoder().decode(decodePDFRawStream(contents.lookup(0,PDFRawStream)).decode());
+    expect(operators).toContain("3 Tr");
+    expect(operators).toContain("<00> Tj");
+    expect(operators).toContain("/ActualText");
+    expect(operators).toMatch(/ET\n[\s\S]+ c\n[\s\S]+f\n/);
+    const fonts=page.node.Resources()!.lookup(PDFName.of("Font"),PDFDict);
+    const faces=fonts.keys().map(key=>fonts.lookup(key,PDFDict));
+    expect(faces.filter(face=>face.get(PDFName.of("Subtype"))===PDFName.of("Type0"))).toHaveLength(1);
+    expect(faces.some(face=>face.get(PDFName.of("BaseFont"))===PDFName.of("Helvetica"))).toBe(true);
+  });
+
   it("switches font resources and returns to fallback on each page", async () => {
     const backend = await PdfLibBackend.create();
     await backend.setFont(bytes);

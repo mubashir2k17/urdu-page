@@ -100,6 +100,15 @@ export function loadInPageTypography(directory: string): RenderTypography {
       kerning:{right:metrics.right,left:metrics.left,clearance:85}});
   }
   const entries = [...candidates.values()];
+  // 0x40bbee–0x40bc65 tightens bank 82 slots 71/72 immediately after
+  // bank 1 slot 5A (Alef), before applying the ordinary boundary clearance.
+  const alef=banks.get(1)?.glyphForCodePoint(0xf05a);
+  if(alef)for(const entry of entries) {
+    if(entry.fontId!=="inpage-noorin-82" || !entry.kerning)continue;
+    if([0x71,0x72].some(slot=>banks.get(82)?.glyphForCodePoint(0xf000+slot).id===entry.glyphId)) {
+      entry.kerning.after=[{fontId:"inpage-noorin-1",glyphId:alef.id,adjustment:-200}];
+    }
+  }
   const usedFonts = new Set(entries.flatMap(({ fontId, overlay }) => overlay ? [fontId, overlay.fontId] : [fontId]));
   console.log(`Enabled ${entries.length} word mappings (${entries.filter(({ overlay }) => overlay).length} overlays) across ${usedFonts.size} Noori banks`);
   const latin = new Map<string, RenderTypography["fonts"][number]>();
@@ -120,6 +129,8 @@ export function loadInPageTypography(directory: string): RenderTypography {
   const noori = new LegacyLigatureTextShaper(entries,true);
   const unicodeShaper=new HarfBuzzTextShaper();
   return {
+    // Reproduce the 600 dpi Windows print placement used by the legacy profile.
+    glyphPositionDpi:600,
     shaper: {shape(input) {
       if(wineSymbol && input.font.id===symbol?.id) {
         const run=unicodeShaper.shape({...input,text:input.text.replaceAll("←","\uf0ac")});

@@ -7,6 +7,26 @@ import { PdfLibBackend } from "./pdflib-backend.js";
 const bytes = readFileSync(new URL("../../../fonts/NotoNastaliqUrdu-Regular.ttf", import.meta.url));
 
 describe("rotated glyph placement", () => {
+  it("optionally truncates glyph origins on a top-left printer grid",async()=>{
+    const run=new HarfBuzzTextShaper().shape({text:"نور",direction:"rtl",script:"arab",language:"ur",font:{id:"embedded-fallback",bytes}});
+    const matrices:number[][][]=[];
+    for(const dpi of [undefined,600]) {
+      const backend=await PdfLibBackend.create(dpi);await backend.setFont(bytes);backend.addPage(300,300);
+      backend.drawShapedRun(run,50.03,60.07,24,12);
+      const pdf=await PDFDocument.load(await backend.save()),contents=pdf.getPage(0).node.Contents();
+      if(!(contents instanceof PDFArray))throw Error("Missing content stream");
+      const text=new TextDecoder().decode(decodePDFRawStream(contents.lookup(0,PDFRawStream)).decode());
+      matrices.push([...text.matchAll(/([\d.e+-]+) ([\d.e+-]+) ([\d.e+-]+) ([\d.e+-]+) ([\d.e+-]+) ([\d.e+-]+) Tm/g)].map(match=>match.slice(1).map(Number)));
+    }
+    for(const [i,grid] of matrices[1]!.entries()) {
+      const precise=matrices[0]![i]!;
+      expect(grid.slice(0,4)).toEqual(precise.slice(0,4));
+      expect(grid[4]).toBeCloseTo(Math.floor(precise[4]!/.12)*.12,7);
+      expect(grid[5]).toBeCloseTo(300-Math.floor((300-precise[5]!)/.12)*.12,7);
+    }
+    await expect(PdfLibBackend.create(0)).rejects.toThrow("DPI");
+  });
+
   it("strokes rotated vector outlines while retaining invisible searchable text",async()=>{
     const run=new HarfBuzzTextShaper().shape({text:"نور",direction:"rtl",script:"arab",language:"ur",font:{id:"embedded-fallback",bytes}});
     const paths:number[][][]=[];

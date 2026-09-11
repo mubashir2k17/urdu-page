@@ -9,6 +9,7 @@ import {
   PDFOperator,
   PDFOperatorNames,
   PDFPage,
+  StandardFonts,
   beginText,
   endMarkedContent,
   endText,
@@ -56,17 +57,45 @@ export class PdfLibBackend implements PdfBackend {
   private readonly fonts = new Map<string, PDFFont>();
   private readonly outlineFonts = new Map<string,Font>();
   private readonly fontBytes = new Map<string,Uint8Array>();
+  private readonly vectorFonts = new Set<string>();
+  private pathTextFont: PDFFont | null = null;
+  private prefersPaths(bytes: Uint8Array): boolean {
+    if (bytes.byteLength < 12) return false;
+    const data=new DataView(bytes.buffer,bytes.byteOffset,bytes.byteLength);
+    const tables=data.getUint16(4);
+    if (12+16*tables > bytes.byteLength) return false;
+    for(let i=0;i<tables;i++) {
+      const entry=12+16*i;
+      if(data.getUint32(entry)===0x4f532f32) {
+        const offset=data.getUint32(entry+8);
+        return offset+10<=bytes.byteLength && (data.getUint16(offset+8)&2)!==0;
+      }
+    }
+    return false;
+  }
+
+  private async prepareFont(bytes: Uint8Array, id: string): Promise<PDFFont> {
+    if (!this.prefersPaths(bytes)) return this.doc.embedFont(bytes, { subset: false });
+    this.vectorFonts.add(id);
+    // Native export fills these font outlines. A standard-font placeholder
+    // activates ActualText without putting the original font bytes in the PDF.
+    this.pathTextFont ??= await this.doc.embedFont(StandardFonts.Helvetica);
+    return this.pathTextFont;
+  }
   private readonly pageFontKeys = new Map<string, PDFName>();
   private readonly images = new Map<string, Awaited<ReturnType<PDFDocument["embedPng"]>>>();
 
-  private constructor(doc: PDFDocument) {
+  private constructor(doc: PDFDocument, private readonly glyphPositionDpi?: number) {
     this.doc = doc;
   }
 
-  static async create(): Promise<PdfLibBackend> {
+  static async create(glyphPositionDpi?: number): Promise<PdfLibBackend> {
+    if(glyphPositionDpi!==undefined && (!Number.isFinite(glyphPositionDpi) || glyphPositionDpi<=0)) {
+      throw new Error("Glyph position DPI must be positive and finite");
+    }
     const doc = await PDFDocument.create();
     doc.registerFontkit(fontkit);
-    return new PdfLibBackend(doc);
+    return new PdfLibBackend(doc,glyphPositionDpi);
   }
 
   async setFont(fontBytes: Uint8Array, fontId = "embedded-fallback"): Promise<void> {
@@ -74,7 +103,7 @@ export class PdfLibBackend implements PdfBackend {
     // some complex Arabic fonts. Full embedding is larger but safer; ordinary
     // shaping and measurement are handled by @inpage/text-shaper.
     if (this.fonts.has(fontId)) throw new Error(`Duplicate PDF font identity: ${fontId}`);
-    this.font = await this.doc.embedFont(fontBytes, { subset: false });
+    this.font = await this.prepareFont(fontBytes, fontId);
     this.fontId = fontId;
     this.fonts.set(fontId, this.font);
     this.fontBytes.set(fontId,fontBytes);
@@ -82,7 +111,7 @@ export class PdfLibBackend implements PdfBackend {
 
   async registerFont(fontBytes: Uint8Array, fontId: string): Promise<void> {
     if (!fontId || this.fonts.has(fontId)) throw new Error(`Duplicate or empty PDF font identity: ${fontId}`);
-    this.fonts.set(fontId, await this.doc.embedFont(fontBytes, { subset: false }));
+    this.fonts.set(fontId, await this.prepareFont(fontBytes, fontId));
     this.fontBytes.set(fontId,fontBytes);
   }
 
@@ -162,26 +191,30 @@ export class PdfLibBackend implements PdfBackend {
         activeFontId = glyphFontId;
       }
       this.currentPage.pushOperators(
+        setTextRenderingMode(appearance.outline || this.vectorFonts.has(glyphFontId) ? TextRenderingMode.Invisible : TextRenderingMode.Fill),
         setTextMatrix(
           cosine * horizontalScale,
           sine * horizontalScale,
           -sine,
           cosine,
-          x + (penX + glyph.xOffset * scale) * horizontalScale * cosine - (penY + glyph.yOffset * scale) * sine,
-          y + (penX + glyph.xOffset * scale) * horizontalScale * sine + (penY + glyph.yOffset * scale) * cosine,
+          ...this.glyphPosition(
+            x + (penX + glyph.xOffset * scale) * horizontalScale * cosine - (penY + glyph.yOffset * scale) * sine,
+            y + (penX + glyph.xOffset * scale) * horizontalScale * sine + (penY + glyph.yOffset * scale) * cosine,
+          ),
         ),
-        showText(PDFHexString.of(glyph.id.toString(16).padStart(4, "0"))),
+        showText(PDFHexString.of(this.vectorFonts.has(glyphFontId) ? "00" : glyph.id.toString(16).padStart(4, "0"))),
       );
       penX += glyph.xAdvance * scale;
       penY += glyph.yAdvance * scale;
     }
 
     this.currentPage.pushOperators(endText());
-    if(appearance.outline) {
+    if(appearance.outline || run.glyphs.some(glyph=>this.vectorFonts.has(glyph.fontId ?? run.fontId))) {
       this.currentPage.pushOperators(setLineCap(LineCapStyle.Round),setLineJoin(LineJoinStyle.Round));
       penX=0;penY=0;
       for(const glyph of run.glyphs) {
         const id=glyph.fontId ?? run.fontId;
+        if(!appearance.outline && !this.vectorFonts.has(id)) {penX+=glyph.xAdvance*scale;penY+=glyph.yAdvance*scale;continue;}
         let face=this.outlineFonts.get(id);
         if(!face){face=fontkit.create(this.fontBytes.get(id)!);this.outlineFonts.set(id,face);}
         const glyphScale=size/face.unitsPerEm;
@@ -190,11 +223,18 @@ export class PdfLibBackend implements PdfBackend {
           const localY=penY+glyph.yOffset*scale+b*glyphScale;
           return [x+localX*cosine-localY*sine,y+localX*sine+localY*cosine];
         };
-        this.currentPage.pushOperators(...glyphOutline(face.getGlyph(glyph.id).path,transform),stroke());
+        this.currentPage.pushOperators(...glyphOutline(face.getGlyph(glyph.id).path,transform),appearance.outline ? stroke() : fill());
         penX+=glyph.xAdvance*scale;penY+=glyph.yAdvance*scale;
       }
     }
     this.currentPage.pushOperators(endMarkedContent(),popGraphicsState());
+  }
+
+  private glyphPosition(x:number,y:number):[number,number] {
+    if(!this.glyphPositionDpi)return [x,y];
+    const step=72/this.glyphPositionDpi, height=this.currentPage!.getHeight();
+    // GDI places text in integer printer coordinates with a top-left origin.
+    return [Math.floor(x/step+1e-7)*step,height-Math.floor((height-y)/step+1e-7)*step];
   }
 
   async drawImage(

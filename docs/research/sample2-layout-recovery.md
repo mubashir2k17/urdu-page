@@ -2,8 +2,8 @@
 
 The active target is 90% overlap against `tests/SAMPLE2.pdf`, using the existing
 grayscale ink intersection/union audit at 36 dpi with no registration correction.
-The latest fresh result is **80.2%** (one A3 sheet, source text count 3533, PDF
-text count 3158 versus reference 2138). It does not meet the target. The source
+The latest fresh result is **82.0%** (one A3 sheet, source text count 3533, PDF
+text count 3134 versus reference 2138). It does not meet the target. The source
 INP composition is A4 and the reference export uses an A3 sheet.
 
 ## Implemented source evidence
@@ -333,3 +333,43 @@ Diagnostic tools: `tmp/all-glyph-positions.py` now expands complete TJ arrays,
 `tmp/compare-arabic-outlines.ts` compares outlines. The original simpler
 `tmp/glyph-positions.py` only locates the first glyph of a TJ array and should
 not be used for per-character Latin comparisons.
+
+
+## 2026-09-11: vector banks, printer placement and native number spacing
+
+Fresh unchanged audit: **0.8204104819 (82.0%)**, 101 tests passing and root
+TypeScript check clean. The target remains 90%.
+
+NOORIN03, NOORIN13 and NOORIN86 are absent from the reference embedded-font
+inventory because their glyphs are filled vector paths. Their supplied SFNT
+OS/2 `fsType` is 2; fontkit labels this bit `noEmbedding`. The backend now fills
+original font outlines for this flag, using an invisible standard-font
+placeholder with ActualText. It does not embed the original flagged bytes.
+The same geometry helper handles outlined text and filled font paths. This
+raised the whole-page audit from 80.2% to 80.6%.
+
+The Microsoft Print To PDF reference places ordinary glyph origins at multiples
+of 0.12 pt (600 dpi), with a top-left origin and truncation. Most matching column
+glyphs had positive residuals of 0–0.12 pt; successive 16 pt lines cycled through
+0.04/0.08/0.12 pt. `RenderTypography.glyphPositionDpi` now optionally reproduces
+this printer placement. The imported legacy profile selects 600 dpi; callers can
+override it or omit it for full precision. This is a printer-profile inference,
+not a resolution decoded from the INP. Vector curve points retain their font
+geometry. No image alignment or scoring changes were made. Grid placement alone
+raised this checkpoint to 81.4%.
+
+The native branch at `0x40bbee–0x40bc65` checks bank 82 slots 0x71/0x72 immediately
+after bank 1 slot 0x5A, subtracts 200 units (double at `0x4dc2c0`), then applies
+ordinary boundary kerning. This explains the excessive advance inside ایک.
+Explicit pair metadata now applies before general kerning and only across
+adjacent glyph clusters. Tests cover an overlay carrier and space interruption.
+
+Multi-digit Extended Arabic-Indic tokens previously bypassed the single-code
+Noori mappings and fell back to Noto. Splitting those tokens retains the native
+source reading order and original-font digit metrics. SAMPLE2 stores ۵۹ and ۸۹
+in reading order; their displayed glyph order is ۹۵ and ۹۸. These two fixes
+raised the fresh score to 82.0%, with less line-wide spacing distortion.
+
+Next: the missing prefix-07 lines. An isolated Unicorn dependency is available
+under ignored `tmp/reverse-engineering/python/` for inspecting the original
+contextual selector without starting the Windows GUI.

@@ -6,9 +6,9 @@
 
 **Branch:** `main`
 
-**Previous committed milestone:** `5ff3e8a fix(render): recover native text spacing`
+**Previous committed milestone:** `7d1f278 fix(render): restore Arabic kashida layout`
 
-**This checkpoint:** native Arabic kashida justification and contextual mark placement
+**This checkpoint:** vector font banks, printer glyph origins, native digits and pair kerning
 
 **Last full verification:** 2026-09-11
 
@@ -25,7 +25,7 @@ coordinates in the renderer.
 ### 2026-09-11: SAMPLE2 fidelity goal remains active
 
 - Target: at least **90%** in the unchanged 36 dpi grayscale ink-overlap audit.
-  Latest fresh result: **80.2%**, one matching A3 sheet. **Not complete.**
+  Latest fresh result: **82.0%**, one matching A3 sheet. **Not complete.**
 - Continue the requested order (rotation, fonts, effects, tables) and the 80/20
   approach. First passes cover all four; prioritize missing visible content.
 - Source line/frame caches now supply baselines, run extents, frame insets and
@@ -52,8 +52,12 @@ coordinates in the renderer.
 - Restored native kashida counts and weighted placement. Arabic body now has all
   404 reference glyphs; its diagnostic overlap rose from 48.9% to 82.5%.
   Native mark classes select offsets calibrated from each supplied font.
-- Verification: full suite **97/97**, root typecheck, fresh audit and visual
+- Verification: full suite **101/101**, root typecheck, fresh audit and visual
   inspection. Local font mode remains opt-in; reference PDFs are evaluation-only.
+- Noori banks with OS/2 noEmbedding use filled paths and searchable standard-font
+  placeholders. The native profile optionally places text on a 600 dpi printer grid.
+- Numeric sequences use Noori digit glyphs. Recovered the native 200-unit
+  tightening of bank 82 slots 71/72 after Alef; column extents improve.
 - Largest remaining gaps: Pashto prefix 07 still needs its Noori Character table;
   Arabic marks and contextual spacing; remaining Noori metric differences;
   remaining border artwork. Line-height rounding alone was tested and rejected.
