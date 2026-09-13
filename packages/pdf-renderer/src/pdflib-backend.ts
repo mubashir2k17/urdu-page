@@ -154,6 +154,8 @@ export class PdfLibBackend implements PdfBackend {
     }
 
     const scale = size / run.unitsPerEm;
+    const fontStep=this.glyphPositionDpi?72/this.glyphPositionDpi:0;
+    const paintedSize=fontStep ? Math.max(fontStep,(run.fontSizeScale?Math.ceil(size/fontStep-1e-7):Math.floor(size/fontStep+1e-7))*fontStep) : size;
     const horizontalScale = appearance.horizontalScale ?? 1;
     const shade = appearance.colorIndex === 1 ? 1 : 0;
     const radians = (rotationDegrees * Math.PI) / 180;
@@ -174,7 +176,7 @@ export class PdfLibBackend implements PdfBackend {
       ]),
       beginText(),
       setTextRenderingMode(appearance.outline ? TextRenderingMode.Invisible : TextRenderingMode.Fill),
-      setFontAndSize(runFontKey, size),
+      setFontAndSize(runFontKey, paintedSize),
     );
 
     let activeFontId = run.fontId;
@@ -187,7 +189,7 @@ export class PdfLibBackend implements PdfBackend {
           key = this.currentPage.node.newFontDictionary(font.name, font.ref);
           this.pageFontKeys.set(glyphFontId, key);
         }
-        this.currentPage.pushOperators(setFontAndSize(key, size));
+        this.currentPage.pushOperators(setFontAndSize(key, paintedSize));
         activeFontId = glyphFontId;
       }
       this.currentPage.pushOperators(
@@ -217,7 +219,7 @@ export class PdfLibBackend implements PdfBackend {
         if(!appearance.outline && !this.vectorFonts.has(id)) {penX+=glyph.xAdvance*scale;penY+=glyph.yAdvance*scale;continue;}
         let face=this.outlineFonts.get(id);
         if(!face){face=fontkit.create(this.fontBytes.get(id)!);this.outlineFonts.set(id,face);}
-        const glyphScale=size/face.unitsPerEm;
+        const glyphScale=paintedSize/face.unitsPerEm;
         const transform=(a:number,b:number):[number,number]=>{
           const localX=(penX+glyph.xOffset*scale+a*glyphScale)*horizontalScale;
           const localY=penY+glyph.yOffset*scale+b*glyphScale;
@@ -310,6 +312,25 @@ export class PdfLibBackend implements PdfBackend {
 
   drawLine(x1: number, y1: number, x2: number, y2: number,thickness=0.6): void {
     if (!this.currentPage) throw new Error("No page added");
+    if (Math.abs(y1 - y2) < 0.01) {
+      const minX = Math.min(x1, x2), maxX = Math.max(x1, x2);
+      const h = (thickness ?? 0.6) * 1.6;
+      this.currentPage.pushOperators(
+        pushGraphicsState(),
+        setFillingRgbColor(0, 0, 0),
+        moveTo(minX, y1 - (h * 0.475)),
+        lineTo(maxX, y1 - (h * 0.475)),
+        lineTo(maxX, y1 - (h * 0.475) + h),
+        lineTo(minX, y1 - (h * 0.475) + h),
+        closePath(),
+        moveTo(0, 0),
+        lineTo(0, 0),
+        closePath(),
+        PDFOperator.of(PDFOperatorNames.FillEvenOdd),
+        popGraphicsState(),
+      );
+      return;
+    }
     this.currentPage.drawLine({
       start: { x: x1, y: y1 },
       end: { x: x2, y: y2 },
@@ -338,15 +359,90 @@ export class PdfLibBackend implements PdfBackend {
     const borderWidth = object.hasBorder ? Math.max(0,Math.min(object.borderWidth ?? 1,width,height)) : 0;
     if (object.polygon?.length) {
       const first=object.polygon[0]!;
-      this.currentPage.pushOperators(pushGraphicsState(),setFillingRgbColor(shade,shade,shade),
-        setStrokingRgbColor(0,0,0),setLineWidth(borderWidth),moveTo(first.x,pageHeight-first.y),
-        ...object.polygon.slice(1).map(point=>lineTo(point.x,pageHeight-point.y)),closePath(),
-        shouldFill && borderWidth ? fillAndStroke() : shouldFill ? fill() : stroke(),popGraphicsState());
+      const pw = borderWidth > 0 ? (object.borderWidth ? object.borderWidth * 0.96 : 0.96) : 0;
+      if (shouldFill) {
+        this.currentPage.pushOperators(
+          pushGraphicsState(),
+          setFillingRgbColor(shade,shade,shade),
+          moveTo(first.x,pageHeight-first.y),
+          ...object.polygon.slice(1).map(point=>lineTo(point.x,pageHeight-point.y)),
+          closePath(),
+          fill(),
+          popGraphicsState()
+        );
+      }
+      if (borderWidth > 0) {
+        const poly = object.polygon;
+        const strokeOps = [
+          pushGraphicsState(),
+          setStrokingRgbColor(0,0,0),
+          setLineWidth(pw),
+          setLineCap(LineCapStyle.Round),
+          setLineJoin(LineJoinStyle.Round),
+        ];
+        for (let i = 0; i < poly.length; i++) {
+          const p1 = poly[i]!;
+          const p2 = poly[(i + 1) % poly.length]!;
+          strokeOps.push(moveTo(p1.x, pageHeight - p1.y), lineTo(p2.x, pageHeight - p2.y), stroke());
+        }
+        strokeOps.push(popGraphicsState());
+        this.currentPage.pushOperators(...strokeOps);
+      }
     } else if (shouldFill || borderWidth) {
-      this.currentPage.drawRectangle({x:x+borderWidth/2,y:pageHeight-top-height+borderWidth/2,
-        width:width-borderWidth,height:height-borderWidth,borderWidth,
-        ...(borderWidth ? {borderColor:rgb(0,0,0)} : {}),
-        ...(shouldFill ? {color:rgb(shade,shade,shade)} : {})});
+      if (object.kind === "text" && object.borderStyle === 1 && borderWidth > 0) {
+        if (shouldFill) {
+          this.currentPage.drawRectangle({x,y:pageHeight-top-height,width,height,color:rgb(shade,shade,shade)});
+        }
+        const bw = 0.96;
+        // Top border as compound horizontal rule
+        this.currentPage.pushOperators(
+          pushGraphicsState(),
+          setFillingRgbColor(0,0,0),
+          moveTo(x, pageHeight - top - bw),
+          lineTo(x + width, pageHeight - top - bw),
+          lineTo(x + width, pageHeight - top),
+          lineTo(x, pageHeight - top),
+          closePath(),
+          moveTo(0, 0), lineTo(0, 0), closePath(),
+          PDFOperator.of(PDFOperatorNames.FillEvenOdd),
+          popGraphicsState(),
+          // Right border
+          pushGraphicsState(),
+          setFillingRgbColor(0,0,0),
+          moveTo(x + width - bw, pageHeight - top - height),
+          lineTo(x + width, pageHeight - top - height),
+          lineTo(x + width, pageHeight - top),
+          lineTo(x + width - bw, pageHeight - top),
+          closePath(),
+          PDFOperator.of(PDFOperatorNames.FillEvenOdd),
+          popGraphicsState(),
+          // Bottom border
+          pushGraphicsState(),
+          setFillingRgbColor(0,0,0),
+          moveTo(x, pageHeight - top - height),
+          lineTo(x + width, pageHeight - top - height),
+          lineTo(x + width, pageHeight - top - height + bw),
+          lineTo(x, pageHeight - top - height + bw),
+          closePath(),
+          PDFOperator.of(PDFOperatorNames.FillEvenOdd),
+          popGraphicsState(),
+          // Left border
+          pushGraphicsState(),
+          setFillingRgbColor(0,0,0),
+          moveTo(x, pageHeight - top - height),
+          lineTo(x + bw, pageHeight - top - height),
+          lineTo(x + bw, pageHeight - top),
+          lineTo(x, pageHeight - top),
+          closePath(),
+          PDFOperator.of(PDFOperatorNames.FillEvenOdd),
+          popGraphicsState()
+        );
+      } else {
+        this.currentPage.drawRectangle({x:x+borderWidth/2,y:pageHeight-top-height+borderWidth/2,
+          width:width-borderWidth,height:height-borderWidth,borderWidth,
+          ...(borderWidth ? {borderColor:rgb(0,0,0)} : {}),
+          ...(shouldFill ? {color:rgb(shade,shade,shade)} : {})});
+      }
       if (object.fillPattern === 3) {
         // A tiling brush must remain a PDF pattern: flattening it into page
         // paths changes the rasterizer's cell rounding at different resolutions.

@@ -26,9 +26,14 @@ export interface ArabicGlyphSubstitution {
 export class LegacyArabicTextShaper implements TextShaper {
   constructor(private readonly forms: ReadonlyMap<string, ArabicLetterForms>, private readonly fallback: TextShaper,
     private readonly substitutions: readonly (readonly ArabicGlyphSubstitution[])[] = [],
-    private readonly kashidaGlyph?: ArabicFormGlyph) {}
+    private readonly kashidaGlyph?: ArabicFormGlyph, private readonly spaceAdvance?:number) {}
 
   shape(input: ShapeInput): ShapedRun {
+    if(this.spaceAdvance!==undefined && /^ +$/.test(input.text)) {
+      const run=this.fallback.shape(input);
+      const advance=this.spaceAdvance*run.unitsPerEm/1000;
+      return {...run,glyphs:run.glyphs.map(glyph=>({...glyph,xAdvance:advance})),totalAdvance:advance*run.glyphs.length};
+    }
     const chars = [...input.text].flatMap(char=>
       this.forms.has(char)?[char]:[...char.normalize("NFD")]);
     if (!chars.length || chars.some(char => !this.forms.has(char))) return this.fallback.shape(input);

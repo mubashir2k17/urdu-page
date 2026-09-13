@@ -101,7 +101,7 @@ export function decodeLegacy(
       continue;
     }
 
-    if ((b === 0x04 || b === 0x05) && i + 1 < data.length) {
+    if ((b === 0x04 || b === 0x05 || b === 0x07) && i + 1 < data.length) {
       const cb = data[i + 1]!;
 
       // Composite check first (4-byte sequence).

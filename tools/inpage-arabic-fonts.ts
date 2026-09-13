@@ -110,7 +110,7 @@ export function loadArabicFontFamilies(directory: string, data: Uint8Array): {fo
     const kashida=family!=="ZoharSindhi" && extension.id?{id:extension.id,fontId:kashidaFace.face.id,advance:extension.advanceWidth*1000/kashidaFace.font.unitsPerEm}:undefined;
     const face = faces[0]!.face;
     names.set(family,face);
-    shapers.set(face.id,new LegacyArabicTextShaper(forms,{shape(input){return unicodeShaper.shape({...input,font:fallbackFont});}},substitutions,kashida));
+    shapers.set(face.id,new LegacyArabicTextShaper(forms,{shape(input){return unicodeShaper.shape({...input,font:fallbackFont,language:input.direction==="rtl"?"ar":"en",script:input.direction==="rtl"?"arab":"latn"});}},substitutions,kashida));
   }
   return {fonts,names,shapers};
 }

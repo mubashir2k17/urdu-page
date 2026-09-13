@@ -13,7 +13,7 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
   if(story.cachedLayout && story.cachedLayout.frameId===object.id && !saved) {
     const cache=story.cachedLayout;
     const insetX=cache.columns===1?Math.max(0,(object.bounds.widthPoints-cache.columnWidth)/2):0;
-    const insetY=Math.max(0,(object.bounds.heightPoints-cache.contentHeight)/2);
+    const insetY=cache.lines.length===1 && cache.lines[0]!.height>cache.contentHeight ? cache.contentHeight-cache.lines[0]!.height : Math.max(0,(object.bounds.heightPoints-cache.contentHeight)/2);
     const gap=cache.columns>1?(object.bounds.widthPoints-cache.columnWidth*cache.columns)/(cache.columns-1):0;
     const angle=(object.rotationDegrees ?? 0)*Math.PI/180;
     let column=0,top=0;
@@ -81,7 +81,9 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
       continue;
     }
     const baseDirection: Direction = paragraph.runs.some(run => /[\u0600-\u06ff]/.test(run.text)) ? "rtl" : "ltr";
-    const preserveBoundarySpaces=hasSavedSpacing || !!saved?.kashidaCount;
+    const preserveLeadingSpaces=hasSavedSpacing || !!saved?.kashidaCount ||
+      !!saved && !!baseStyle.arabicFontName && baseStyle.arabicFontName!=="Noori Nastaliq" && baseDirection==="rtl";
+    const preserveTrailingSpaces=hasSavedSpacing || !!saved?.kashidaCount;
     const tokens: Token[] = [];
     const sources: {text:string;style:TextStyle;scalarStyles:TextStyle[]}[] = [];
     for (const source of paragraph.runs) {
@@ -156,10 +158,10 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
         while (line.length && /^\s+$/.test(line.at(-1)!.text)) line.pop();
         lines.push(line); line = []; lineWidth = 0;
       }
-      if (!preserveBoundarySpaces && !line.length && /^\s+$/.test(token.text)) continue;
+      if (!preserveLeadingSpaces && !line.length && /^\s+$/.test(token.text)) continue;
       line.push(token); lineWidth += token.width;
     }
-    while (!preserveBoundarySpaces && line.length && /^\s+$/.test(line.at(-1)!.text)) line.pop();
+    while (!preserveTrailingSpaces && line.length && /^\s+$/.test(line.at(-1)!.text)) line.pop();
     if (line.length) lines.push(line);
     for (const [index, items] of lines.entries()) {
       const fontSize = Math.max(...items.map(item => item.style.fontSize));
