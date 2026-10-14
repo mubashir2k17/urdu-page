@@ -70,14 +70,21 @@ export function decodeStyledStories(data: Uint8Array, mode: Mode): {stories: Sto
           if(lines.some(line=>line.runs.some(run=>run.kind===0x7f87)))continue;
           story.cachedLayout={frameId:frame.id,columnWidth:frame.columnWidth,contentHeight:frame.contentHeight,columns:frame.columns,
             lines:lines.map(line=>({height:line.height,baseline:line.baseline,width:line.width,paragraphStart:line.paragraphStart,
-              runs:line.runs.filter(run=>run.kind===0x7f80 || run.kind===0x7f85 || run.kind===0x7f86).map(run=>{
+              runs:line.runs.filter(run=>run.kind===0x7f80 || run.kind===0x7f85 || run.kind===0x7f86 || run.kind===0x7f8b).map(run=>{
                 const start=line.start+run.start,end=line.start+run.end;
                 const runs:Paragraph["runs"]=[];
                 spans.forEach((span,index)=>{
                   const left=Math.max(start,span.start),right=Math.min(end,span.end);
                   if(left>=right)return;
                   for(const paragraph of decodeStyledBytes(payload.subarray(left,right),mode,styles[index]!).paragraphs)
-                    for(const part of paragraph.runs)runs.push({...part,style:{...styles[index]!,...part.style}});
+                    for(const part of paragraph.runs) {
+                      const style = {...styles[index]!,...part.style};
+                      if (run.kind === 0x7f8b) {
+                        style.arabicFontName = style.bold ? "Trad Arabic Bold" : "Trad Arabic";
+                        style.bold = false;
+                      }
+                      runs.push({...part,style});
+                    }
                 });
                 return {x:run.x,width:run.width,...(run.kashidaCount?{kashidaCount:run.kashidaCount}:{}),...(run.characterSpacing===undefined?{}:{characterSpacing:run.characterSpacing,extraSpace:run.extraSpace ?? 0}),...(run.baseline===undefined?{}:{baseline:run.baseline}),
                   direction:run.kind!==0x7f80?"rtl" as const:"ltr" as const,runs};
@@ -97,7 +104,7 @@ function decodeStyledBytes(bytes:Uint8Array,mode:Mode,style:TextStyle):ReturnTyp
   }
   // Character-set transitions can occur inside a style span (for example a
   // Sindhi paragraph followed by an Urdu annotation). Preserve both faces.
-  if (!bytes.includes(5)) return decodeLegacy(bytes,{mode});
+  if (!bytes.includes(5) && !bytes.includes(7)) return decodeLegacy(bytes,{mode});
   const result:ReturnType<typeof decodeLegacy>={paragraphs:[],pageBreakBefore:new Set(),diagnostics:[]};
   let start=0,charset=4;
   const append=(end:number)=>{
@@ -107,7 +114,8 @@ function decodeStyledBytes(bytes:Uint8Array,mode:Mode,style:TextStyle):ReturnTyp
       const target=result.paragraphs.at(-1) ?? {index:0,runs:[],startOffset:0,endOffset:end};
       if(!result.paragraphs.length)result.paragraphs.push(target);
       for(const run of paragraph.runs)target.runs.push({...run,
-        ...(charset===5?{style:{...style,arabicFontName:"ZoharSindhi"}}:{})});
+        ...(charset===5?{style:{...style,arabicFontName:"ZoharSindhi"}}:{}),
+        ...(charset===7?{style:{...style,arabicFontName:style.bold?"Trad Arabic Bold":"Trad Arabic",bold:false}}:{})});
       target.endOffset=end;
     }
     result.diagnostics.push(...decoded.diagnostics.map(d=>({...d,offset:(d.offset ?? 0)+start})));

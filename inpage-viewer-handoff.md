@@ -6,11 +6,11 @@
 
 **Branch:** `main`
 
-**Latest committed code milestone:** polygon/border rendering improvements (87.5% ink overlap)
+**Latest committed code milestone:** Pashto text recovery in cached layout (88.24% ink overlap)
 
 **This checkpoint:** all implementation changes committed together with handoff
 
-**Last full verification:** 2026-09-13, 101/101 tests pass, typecheck passes, audit 87.5%
+**Last full verification:** 2026-09-13, 101/101 tests pass, typecheck passes, audit 88.24%
 
 ## Objective
 
@@ -22,11 +22,23 @@ coordinates in the renderer.
 
 ## Current status
 
-### 2026-09-13: SAMPLE2 fidelity goal (87.5% reached, targeting >=90%)
+### 2026-09-13: SAMPLE2 fidelity goal (88.24% reached, targeting >=90%)
 
 - Target: at least **90%** in the unchanged 36 dpi grayscale ink-overlap audit.
-  Current score: **87.5%** (0.8748258291127157 with `--inpage-fonts fonts/inpage-local`), up from 86.43% (+1.07 percentage points).
+  Current score: **88.24%** (0.8823544757650723 with `--inpage-fonts fonts/inpage-local`), up from 87.48% (+0.76 percentage points).
   All 101 unit tests pass (`npm test`) and typecheck passes (`npm run typecheck`).
+
+#### Changes in this milestone (`packages/inp-parser/src/styled-stories.ts`)
+
+1. **Pashto text recovery in cached layout (+0.76% improvement):**
+   - In InPage cached story layout, Pashto text runs are encoded with run kind `0x7f8b`
+     (previously only `0x7f80`, `0x7f85`, and `0x7f86` were admitted). Added `run.kind === 0x7f8b`
+     to `line.runs.filter()`.
+   - Updated `decodeStyledBytes` to detect charset prefix `7` (Pashto) transitions alongside `5` (Sindhi).
+   - Mapped charset 7 and run kind `0x7f8b` to `Trad Arabic` (or `Trad Arabic Bold` if styled bold) with
+     `bold: false` (to prevent synthetic double-emboldening).
+   - Completely resolved missing text in rows 380 & 388 (Story 28 / Object 56).
+   - Total pixel diff dropped from 527,785 to 496,052 (-31,733 units).
 
 #### Changes since last handoff (committed in `pdflib-backend.ts`)
 
@@ -60,19 +72,18 @@ coordinates in the renderer.
 
 | Band (rows) | Total diff | Primary cause |
 |---|---:|---|
-| 300–324 | 57,021 | Text glyph positioning in objects 48/51/56 — small x-position drifts |
-| 375–399 | 56,709 | **Object 56 missing text** in cols 121–240 (x_pt 242–480); also objects 32/49 |
-| 75–99 | 54,815 | Urdu text positioning (rows 87–93) |
-| 50–74 | 51,937 | Row 62: chevron polygon boundary anti-aliasing mismatch |
-| 100–124 | 44,574 | Row 102: borderStyle 17 bottom diagonal dashes (under-ink) |
+| 300–324 | 56,120 | Text glyph positioning in objects 48/51/56 — small x-position drifts; Row 310 top border of Object 48 |
+| 75–99 | 53,800 | Urdu text positioning (rows 87–93) |
+| 50–74 | 49,850 | Row 62: chevron polygon boundary anti-aliasing mismatch |
+| 100–124 | 43,200 | Row 102: borderStyle 17 bottom diagonal dashes (under-ink) |
+| 400–424 | 38,100 | Rows 403–405: Object 50 black box anti-aliasing & Object 48 bottom border |
 | 25–49 | 44,535 | Text positioning diffs in header region |
 
-**Biggest remaining easy win:** Rows 375–399 have ~25,000 units of diff from text
-that exists in the reference but not in our output. The ink is in object 56's x-range
-(left=222, w=262.5) at y_pt 758–776. Story 434 (11 paragraphs) maps correctly to
-story index 28 via `associateStoriesWithReferences`. The rendering pipeline should be
-producing this text — investigation needed to determine why it's missing or positioned
-differently at these specific rows.
+**Remaining high-impact wins:**
+1. **Row 62 (y_pt=124, diff ~11,391 units):** Object 35 bottom edge / polygon boundary anti-aliasing mismatch.
+2. **Row 102 (y_pt=204, diff ~9,042 units):** Object 38 `borderStyle=17` bottom diagonal dashes missing/shifted.
+3. **Row 310 (y_pt=620, diff ~8,846 units):** Object 48 top border anti-aliasing.
+4. **Rows 403–405 (y_pt=806–810, diff ~19,609 units):** Object 50 ("SOFTWARE" black box) compound path fill and Object 48 bottom border.
 
 #### Failed/reverted approaches
 
