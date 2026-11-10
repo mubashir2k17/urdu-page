@@ -17,6 +17,8 @@
     "audit:references": "vite-node --config vitest.config.ts tools/audit-references.ts",
     "fonts:import": "vite-node --config vitest.config.ts tools/import-inpage-fonts.ts",
     "fonts:preview": "vite-node --config vitest.config.ts tools/preview-inpage-fonts.ts",
+    "nooric:extract": "vite-node --config vitest.config.ts tools/extract-nooric-table.ts",
+    "nooric:validate": "vite-node --config vitest.config.ts tools/validate-nooric-shaping.ts",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint \"packages/*/src/**/*.ts\""
