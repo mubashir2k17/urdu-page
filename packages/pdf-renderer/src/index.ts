@@ -1,4 +1,5 @@
-export { PdfLibBackend, createPdfLibBackend } from "./pdflib-backend.js";
+export { PdfLibBackend, createPdfLibBackend, computeGraphicBoundary } from "./pdflib-backend.js";
+export type { GraphicBoundaryOptions } from "./pdflib-backend.js";
 export { renderPdf, NodeFallbackFont, A4_WIDTH, A4_HEIGHT, MARGIN } from "./render.js";
 export type { RenderPdfResult, FallbackFont, RenderTypography } from "./render.js";
 export type { PdfBackend } from "./backend.js";

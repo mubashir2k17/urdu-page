@@ -44,9 +44,148 @@ import {glyphOutline} from "./glyph-outline.js";
 import type { PdfBackend, TextAppearance } from "./backend.js";
 import { dibToPng } from "./dib-to-png.js";
 
-const OBJ34_CLIP: Array<[number, number]> = [[36,36],[36,132.36],[36.24,131.16],[36.36,130.44],[36.48,129.84],[36.6,129.12],[36.72,128.52],[36.84,127.8],[37.08,126.6],[37.2,125.88],[37.32,125.28],[37.44,124.56],[37.56,123.96],[37.68,123.24],[37.8,122.64],[37.92,121.92],[38.16,120.72],[38.28,120],[38.4,119.4],[38.52,118.68],[38.64,118.08],[38.76,117.36],[38.88,116.76],[39,116.04],[39.24,114.84],[39.36,114.12],[39.48,113.52],[39.6,112.8],[39.72,112.2],[39.84,111.48],[39.96,110.88],[40.08,110.16],[40.32,108.96],[40.44,108.24],[40.56,107.64],[40.68,106.92],[40.8,106.32],[40.92,105.6],[41.04,105],[41.16,104.28],[41.4,103.08],[41.52,102.36],[41.64,101.76],[41.76,101.04],[41.88,100.44],[42,99.72],[42.12,99.12],[42.24,98.4],[42.48,97.2],[42.6,96.48],[42.72,95.88],[42.84,95.16],[42.96,94.56],[43.08,93.84],[43.2,93.24],[43.32,92.52],[43.56,91.32],[43.68,90.6],[43.8,90],[43.92,89.28],[44.04,88.68],[44.16,87.96],[44.28,87.36],[44.4,86.64],[44.64,85.44],[44.76,84.72],[44.88,84.12],[45,83.4],[45.12,82.8],[45.24,82.08],[45.36,81.48],[45.48,80.76],[45.72,79.56],[45.84,78.84],[45.96,78.24],[46.08,77.52],[46.2,76.92],[46.32,76.2],[46.44,75.6],[46.56,74.88],[46.8,73.68],[46.92,72.96],[47.04,72.36],[47.16,71.64],[47.28,71.04],[47.4,70.32],[47.52,69.72],[47.64,69],[47.88,67.8],[48,67.08],[48.12,66.48],[48.24,65.76],[48.36,65.16],[48.48,64.44],[48.6,63.84],[48.72,63.12],[48.96,61.92],[49.08,61.2],[49.2,60.6],[49.32,59.88],[49.44,59.28],[49.56,58.56],[49.68,57.96],[49.8,57.24],[50.04,56.04],[50.16,55.32],[50.28,54.72],[50.4,54],[50.52,53.4],[50.64,52.68],[50.76,52.08],[50.88,51.36],[309.96,36.12],[311.88,36]];
 
-const OBJ35_CLIP: Array<[number, number]> = [[289.32,29.88],[289.2,30.48],[289.08,31.2],[288.84,32.4],[288.72,33.12],[288.6,33.72],[288.48,34.44],[288.24,35.64],[288.12,36.36],[288,36.96],[287.88,37.68],[287.64,38.88],[287.52,39.6],[287.4,40.2],[287.28,40.92],[287.04,42.12],[286.92,42.84],[286.8,43.44],[286.68,44.16],[286.44,45.36],[286.32,46.08],[286.2,46.68],[286.08,47.4],[285.84,48.6],[285.72,49.32],[285.6,49.92],[285.48,50.64],[285.24,51.84],[285.12,52.56],[285,53.16],[284.88,53.88],[284.64,55.08],[284.52,55.8],[284.4,56.4],[284.28,57.12],[284.04,58.32],[283.92,59.04],[283.8,59.64],[283.68,60.36],[283.44,61.56],[283.32,62.28],[283.2,62.88],[283.08,63.6],[282.84,64.8],[282.72,65.52],[282.6,66.12],[282.48,66.84],[282.24,68.04],[282.12,68.76],[282,69.36],[281.88,70.08],[281.64,71.28],[281.52,72],[281.4,72.6],[281.28,73.32],[281.04,74.52],[280.92,75.24],[280.8,75.84],[280.68,76.56],[280.44,77.76],[280.32,78.48],[280.2,79.08],[280.08,79.8],[279.84,81],[279.72,81.72],[279.6,82.32],[279.48,83.04],[279.24,84.24],[279.12,84.96],[279,85.56],[278.88,86.28],[278.64,87.48],[278.52,88.2],[278.4,88.8],[278.28,89.52],[278.04,90.72],[277.92,91.44],[277.8,92.04],[277.68,92.76],[277.44,93.96],[277.32,94.68],[277.2,95.28],[277.08,96],[276.84,97.2],[276.72,97.92],[276.6,98.52],[276.48,99.24],[276.24,100.44],[276.12,101.16],[276,101.76],[275.88,102.48],[275.64,103.68],[275.52,104.4],[275.4,105],[275.28,105.72],[275.04,106.92],[274.92,107.64],[274.8,108.24],[274.68,108.96],[274.44,110.16],[272.52,110.28],[15.48,125.4],[289.44,125.52],[289.44,29.88]];
+
+/** Native 600 dpi printer grid (72/600 pt per step). */
+const DEVICE_STEP_POINTS = 72 / 600;
+function snapToDevice(value: number): number {
+  return Math.floor(value / DEVICE_STEP_POINTS + 1e-9) * DEVICE_STEP_POINTS;
+}
+
+/** Options for {@link computeGraphicBoundary}. */
+export interface GraphicBoundaryOptions {
+  /** Sample points per polygon edge (default 1: the decoded vertices). */
+  edgeSamples?: number;
+  /** Sample points per ellipse quadrant and per rounded corner (default 24). */
+  curveSamples?: number;
+  /** Corner rounding radius in points (default 0 keeps sharp vertices). */
+  cornerRadius?: number;
+}
+
+/**
+ * Compute the closed boundary polygon of a graphic object from its decoded
+ * bounds, polygon and style — never from its object id.
+ *
+ * Evidence (docs/reverse-engineering/drawing-records.md, and the clips
+ * recovered from the SAMPLE2 reference PDF): the native text-wrap boundary of
+ * a polygon graphic is the decoded polygon itself. Every boundary edge is
+ * straight — the recovered clips' "curves" deviate <= 0.01 pt from their
+ * chords; the native path machinery (FUN_0041b410/FUN_0041b860/FUN_004d4ef0)
+ * merely flattens its bezier-encoded straight edges onto a 0.12 pt device grid
+ * and bevels some vertices by up to ~2 pt. Ellipse frames sample an ellipse
+ * over the bounds; anything else falls back to the bounds rectangle.
+ *
+ * The loop is explicitly closed: the first point is repeated at the end.
+ */
+export function computeGraphicBoundary(
+  object: PageObject,
+  options: GraphicBoundaryOptions = {},
+): Array<[number, number]> {
+  const edgeSamples = Math.max(1, Math.trunc(options.edgeSamples ?? 1));
+  const curveSamples = Math.max(2, Math.trunc(options.curveSamples ?? 24));
+  const cornerRadius = options.cornerRadius ?? 0;
+
+  const vertices = object.polygon;
+  if (vertices && vertices.length >= 3) {
+    return samplePolygonBoundary(vertices, edgeSamples, curveSamples, cornerRadius);
+  }
+  const { xPoints: x, yPoints: y, widthPoints: width, heightPoints: height } = object.bounds;
+  if (object.shape === "ellipse") {
+    return sampleEllipseBoundary(
+      x + width / 2,
+      y + height / 2,
+      Math.max(0, width / 2),
+      Math.max(0, height / 2),
+      curveSamples,
+    );
+  }
+  return [[x, y], [x + width, y], [x + width, y + height], [x, y + height], [x, y]];
+}
+
+/** Polygon boundary: chords between decoded vertices, optional corner rounding. */
+function samplePolygonBoundary(
+  vertices: ReadonlyArray<{ x: number; y: number }>,
+  edgeSamples: number,
+  curveSamples: number,
+  cornerRadius: number,
+): Array<[number, number]> {
+  const count = vertices.length;
+  let frame: Array<[number, number]>;
+  if (cornerRadius > 0) {
+    // Trim each vertex by the radius and bridge the gap with a quadratic arc
+    // through the vertex; concave corners are cut the same way.
+    frame = [];
+    for (let i = 0; i < count; i++) {
+      const prev = vertices[(i - 1 + count) % count]!;
+      const vertex = vertices[i]!;
+      const next = vertices[(i + 1) % count]!;
+      const dPrev = Math.hypot(vertex.x - prev.x, vertex.y - prev.y);
+      const dNext = Math.hypot(next.x - vertex.x, next.y - vertex.y);
+      const trim = Math.min(cornerRadius, dPrev / 2, dNext / 2);
+      const towardPrev = dPrev > 0 ? trim / dPrev : 0;
+      const towardNext = dNext > 0 ? trim / dNext : 0;
+      const p1: [number, number] = [
+        vertex.x + (prev.x - vertex.x) * towardPrev,
+        vertex.y + (prev.y - vertex.y) * towardPrev,
+      ];
+      const p2: [number, number] = [
+        vertex.x + (next.x - vertex.x) * towardNext,
+        vertex.y + (next.y - vertex.y) * towardNext,
+      ];
+      frame.push(p1);
+      for (let s = 1; s <= curveSamples; s++) {
+        const t = s / curveSamples;
+        const u = 1 - t;
+        frame.push([
+          u * u * p1[0]! + 2 * u * t * vertex.x + t * t * p2[0]!,
+          u * u * p1[1]! + 2 * u * t * vertex.y + t * t * p2[1]!,
+        ]);
+      }
+    }
+  } else {
+    frame = vertices.map((vertex) => [vertex.x, vertex.y] as [number, number]);
+  }
+  const out: Array<[number, number]> = [];
+  for (let i = 0; i < frame.length; i++) {
+    const a = frame[i]!;
+    const b = frame[(i + 1) % frame.length]!;
+    for (let s = 0; s < edgeSamples; s++) {
+      const t = s / edgeSamples;
+      out.push([a[0]! + (b[0]! - a[0]!) * t, a[1]! + (b[1]! - a[1]!) * t]);
+    }
+  }
+  out.push([out[0]![0], out[0]![1]]);
+  return out;
+}
+
+/** Ellipse boundary over the object bounds, parameterized by point count. */
+function sampleEllipseBoundary(
+  cx: number,
+  cy: number,
+  rx: number,
+  ry: number,
+  quadrantSamples: number,
+): Array<[number, number]> {
+  const total = quadrantSamples * 4;
+  const out: Array<[number, number]> = [];
+  for (let i = 0; i < total; i++) {
+    const angle = (i * 2 * Math.PI) / total;
+    out.push([cx + rx * Math.cos(angle), cy + ry * Math.sin(angle)]);
+  }
+  out.push([out[0]![0], out[0]![1]]);
+  return out;
+}
+
+/** Drop the repeated closing point when present. */
+function dedupeClosingPoint(loop: Array<[number, number]>): Array<[number, number]> {
+  if (loop.length > 1) {
+    const first = loop[0]!;
+    const last = loop[loop.length - 1]!;
+    if (first[0] === last[0] && first[1] === last[1]) return loop.slice(0, -1);
+  }
+  return loop;
+}
+
 
 export class PdfLibBackend implements PdfBackend {
   private doc: PDFDocument;
@@ -365,97 +504,16 @@ export class PdfLibBackend implements PdfBackend {
     const shade = object.fillColorIndex === 2 ? 0 : object.fillColorIndex === 3 ? 0.5 : 1;
     const shouldFill = object.fillColorIndex !== undefined && object.fillColorIndex !== 0;
     const borderWidth = object.hasBorder ? Math.max(0,Math.min(object.borderWidth ?? 1,width,height)) : 0;
+    const pw = borderWidth > 0 ? (object.borderWidth ? object.borderWidth * 0.96 : 0.96) : 0;
     if (object.polygon?.length) {
-      if (object.id === 34) {
-        this.currentPage.pushOperators(
-          pushGraphicsState(),
-          moveTo(OBJ34_CLIP[0]![0], pageHeight - OBJ34_CLIP[0]![1]),
-          ...OBJ34_CLIP.slice(1).map(p => lineTo(p[0], pageHeight - p[1])),
-          closePath(),
-          clipEvenOdd(),
-          endPath(),
-          setFillingRgbColor(0, 0, 0),
-          moveTo(36, pageHeight - 36),
-          lineTo(311.88, pageHeight - 36),
-          lineTo(311.88, pageHeight - 132.36),
-          lineTo(36, pageHeight - 132.36),
-          closePath(),
-          fill(),
-          popGraphicsState(),
-          pushGraphicsState(),
-          setStrokingRgbColor(0, 0, 0),
-          setLineCap(LineCapStyle.Round),
-          setLineJoin(LineJoinStyle.Round),
-          setLineWidth(0.96),
-          moveTo(36, pageHeight - 36), lineTo(311.88, pageHeight - 36), stroke(),
-          moveTo(311.88, pageHeight - 36), lineTo(50.88, pageHeight - 51.36), stroke(),
-          moveTo(50.88, pageHeight - 51.36), lineTo(36, pageHeight - 132.36), stroke(),
-          moveTo(36, pageHeight - 132.36), lineTo(36, pageHeight - 36), stroke(),
-          popGraphicsState(),
-        );
+      if (object.polygon.length >= 3) {
+        // Generic path: boundary from decoded bounds/polygon/style only, snapped
+        // to the same 0.12 pt (600 dpi) device grid the native printer uses.
+        const boundary = dedupeClosingPoint(computeGraphicBoundary(object))
+          .map(([bx, by]): [number, number] => [snapToDevice(bx), snapToDevice(by)]);
+        this.drawPolygonBoundary(boundary, pageHeight, shade, shouldFill, borderWidth, pw);
         return;
       }
-      if (object.id === 35) {
-        this.currentPage.pushOperators(
-          pushGraphicsState(),
-          moveTo(OBJ35_CLIP[0]![0], pageHeight - OBJ35_CLIP[0]![1]),
-          ...OBJ35_CLIP.slice(1).map(p => lineTo(p[0], pageHeight - p[1])),
-          closePath(),
-          clipEvenOdd(),
-          endPath(),
-          setFillingRgbColor(0, 0, 0),
-          moveTo(15.48, pageHeight - 29.88),
-          lineTo(289.44, pageHeight - 29.88),
-          lineTo(289.44, pageHeight - 125.52),
-          lineTo(15.48, pageHeight - 125.52),
-          closePath(),
-          fill(),
-          popGraphicsState(),
-          pushGraphicsState(),
-          setStrokingRgbColor(0, 0, 0),
-          setLineCap(LineCapStyle.Round),
-          setLineJoin(LineJoinStyle.Round),
-          setLineWidth(0.96),
-          moveTo(289.44, pageHeight - 125.52), lineTo(13.44, pageHeight - 125.52), stroke(),
-          moveTo(13.44, pageHeight - 125.52), lineTo(274.44, pageHeight - 110.16), stroke(),
-          moveTo(274.44, pageHeight - 110.16), lineTo(289.44, pageHeight - 29.16), stroke(),
-          moveTo(289.44, pageHeight - 29.16), lineTo(289.44, pageHeight - 125.52), stroke(),
-          popGraphicsState(),
-        );
-        return;
-      }
-      const first = object.polygon[0]!;
-      const pw = borderWidth > 0 ? (object.borderWidth ? object.borderWidth * 0.96 : 0.96) : 0;
-      if (shouldFill) {
-        this.currentPage.pushOperators(
-          pushGraphicsState(),
-          setFillingRgbColor(shade,shade,shade),
-          moveTo(first.x,pageHeight-first.y),
-          ...object.polygon.slice(1).map(point=>lineTo(point.x,pageHeight-point.y)),
-          closePath(),
-          fill(),
-          popGraphicsState()
-        );
-      }
-      if (borderWidth > 0) {
-        const poly = object.polygon;
-        const strokeOps = [
-          pushGraphicsState(),
-          setStrokingRgbColor(0,0,0),
-          setLineWidth(pw),
-          setLineCap(LineCapStyle.Round),
-          setLineJoin(LineJoinStyle.Round),
-        ];
-        for (let i = 0; i < poly.length; i++) {
-          const p1 = poly[i]!;
-          const p2 = poly[(i + 1) % poly.length]!;
-          strokeOps.push(moveTo(p1.x, pageHeight - p1.y), lineTo(p2.x, pageHeight - p2.y), stroke());
-        }
-        strokeOps.push(popGraphicsState());
-        this.currentPage.pushOperators(...strokeOps);
-      }
-
-
     } else if (shouldFill || borderWidth) {
       if (object.kind === "text" && object.borderStyle === 1 && borderWidth > 0) {
         if (shouldFill) {
@@ -600,6 +658,47 @@ export class PdfLibBackend implements PdfBackend {
 
         this.currentPage.pushOperators(...borderOps);
       }
+    }
+  }
+
+  /** Fill and stroke a closed graphic boundary loop (decoded vertex order). */
+  private drawPolygonBoundary(
+    loop: Array<[number, number]>,
+    pageHeight: number,
+    shade: number,
+    shouldFill: boolean,
+    borderWidth: number,
+    strokeWidth: number,
+  ): void {
+    const page = this.currentPage;
+    if (!page) throw new Error("No page added");
+    if (loop.length < 3) return;
+    if (shouldFill) {
+      page.pushOperators(
+        pushGraphicsState(),
+        setFillingRgbColor(shade, shade, shade),
+        moveTo(loop[0]![0], pageHeight - loop[0]![1]),
+        ...loop.slice(1).map((point) => lineTo(point[0], pageHeight - point[1])),
+        closePath(),
+        fill(),
+        popGraphicsState(),
+      );
+    }
+    if (borderWidth > 0) {
+      const strokeOps = [
+        pushGraphicsState(),
+        setStrokingRgbColor(0, 0, 0),
+        setLineWidth(strokeWidth),
+        setLineCap(LineCapStyle.Round),
+        setLineJoin(LineJoinStyle.Round),
+      ];
+      for (let i = 0; i < loop.length; i++) {
+        const p1 = loop[i]!;
+        const p2 = loop[(i + 1) % loop.length]!;
+        strokeOps.push(moveTo(p1[0], pageHeight - p1[1]), lineTo(p2[0], pageHeight - p2[1]), stroke());
+      }
+      strokeOps.push(popGraphicsState());
+      page.pushOperators(...strokeOps);
     }
   }
 

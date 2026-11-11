@@ -69,9 +69,9 @@ sequentially.
 
 ## What the grammar does NOT contain
 
-The curved wrap boundary used by graphics 34/35 is **not** in the tag stream:
-the record only carries a 4-point polygon, fill, and style. The native
-application derives the curved text-wrap boundary (ellipse/bezier) internally.
+The curved text-wrap boundary used by graphics 34/35 is **not** in the tag
+stream: the record only carries a 4-point polygon, fill, and style. The native
+application derives the boundary internally.
 
 Runtime path: `FUN_004d4ef0` is a GDI path builder that consumes a point array
 plus per-point opcodes (`02/03` line/close, `04/05` bezier/close, `06` move) and
@@ -88,13 +88,26 @@ Related recovered machinery:
 
 Caveat: the `0x41b860` caller examined (`0x4d2710`, case 4 of a pattern switch)
 uses this machinery for **ellipse pattern cells**, not for the 34/35 border.
-The 34/35 curved clip is therefore still unexplained; it is plausibly a
-GDI-flattened rounded/pen-stroke path. Replacing the hardcoded clip requires
-establishing that specific caller (open item).
 
-This means: replacing the object-id hardcoding with generic decoded properties
-is possible for fills, patterns, border widths/styles, rotation, and the polygon
-outline, but the 34/35 curved clip needs additional native-evidence work.
+## Resolved: the 34/35 boundary is the decoded polygon
+
+The clips recovered from the SAMPLE2 reference PDF (`W* n` paths 7 and 8,
+emitted under a `[0.75 0 0 -0.75 0 1190.52]` transform) are the decoded 4-point
+polygons with straight edges:
+
+- Every "curve" point list is collinear with its polygon edge: a least-squares
+  line fit deviates <= 0.01 pt over the full 82 pt edge. The bezier opcodes
+  (`0x41b860`) encode straight edges as bezier chains; GDI flattening
+  (`0x4d4ef0`) then emits ~100 points per edge, which reads as a "curve".
+- All coordinates are snapped to a 0.12 pt device grid.
+- Some vertices are beveled (cut) by 0.02–2.1 pt along the adjacent edges
+  (obj 35 vertices 2 and 3 lose ~2 pt legs; obj 34 is within 0.08 pt), another
+  flattening artifact. The enclosed area differs from the polygon by 0.2%
+  (obj 34) and 1.1% (obj 35).
+
+So the generic boundary for a polygon graphic is the decoded polygon itself
+(`computeGraphicBoundary` in `packages/pdf-renderer/src/pdflib-backend.ts`);
+no ellipse/offset model is needed, and no object-id branching.
 
 ## Reproduce
 
