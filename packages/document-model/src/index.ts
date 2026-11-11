@@ -62,6 +62,10 @@ export type TextRun = {
   text: string;
   /** InPage character codes (second byte of `04 XX` pairs), for diagnostics. */
   rawCodes?: number[];
+  /** Legacy codes aligned 1:1 with Unicode scalars; undefined where no single code applies. */
+  charCodes?: (number | undefined)[];
+  /** Native cached-layout run kind, retained for run-kind-specific shaping. */
+  legacyRunKind?: number;
   styleId?: number;
   style?: TextStyle;
 };

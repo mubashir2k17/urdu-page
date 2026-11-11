@@ -20,8 +20,8 @@ export interface ShapeFont {
 export interface ShapeInput {
   /** Logical Unicode text for one already-segmented run. */
   text: string;
-  /** Legacy InPage character codes for this run, when available. */
-  codes?: readonly number[];
+  /** Legacy codes aligned with text's Unicode scalars; gaps use the fallback shaper. */
+  codes?: readonly (number | undefined)[];
   font: ShapeFont;
   direction: TextDirection;
   language: string;
@@ -66,6 +66,8 @@ export interface ShapedRun {
   unitsPerEm: number;
   /** Optional cell-height to em-height conversion for legacy Windows fonts. */
   fontSizeScale?: number;
+  /** True when aligned legacy codes selected glyphs instead of Unicode alone. */
+  legacyCodeShaped?: boolean;
   glyphs: ShapedGlyph[];
   totalAdvance: number;
   missingGlyphCount: number;

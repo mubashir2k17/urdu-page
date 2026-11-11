@@ -31,7 +31,7 @@ export interface RenderTypography {
   glyphPositionDpi?: number;
   /** Additional fonts referenced by glyph fontId overrides. */
   fonts: ShapeFont[];
-  resolveFont?: (style: TextStyle, direction: "ltr" | "rtl") => ShapeFont | undefined;
+  resolveFont?: (style: TextStyle, direction: "ltr" | "rtl", legacyRunKind?: number) => ShapeFont | undefined;
 }
 
 /** A simple built-in fallback font loader (reads from the filesystem in Node). */
@@ -75,13 +75,15 @@ export async function renderPdf(
   }
   const shaper = typography?.shaper ?? new HarfBuzzTextShaper();
   const shapedRuns = new Map<string, ShapedRun>();
-  const shape = (text: string, direction: "ltr" | "rtl" = "rtl", style?: TextStyle): ShapedRun => {
-    const selectedFont = style ? typography?.resolveFont?.(style, direction) ?? shapeFont : shapeFont;
-    const cacheKey = `${selectedFont.id}:${direction}:${text}`;
+  const shape = (text: string, direction: "ltr" | "rtl" = "rtl", style?: TextStyle,
+    codes?: readonly (number | undefined)[], legacyRunKind?: number): ShapedRun => {
+    const selectedFont = style ? typography?.resolveFont?.(style, direction, legacyRunKind) ?? shapeFont : shapeFont;
+    const cacheKey = `${selectedFont.id}:${direction}:${legacyRunKind ?? ""}:${codes ? JSON.stringify(codes) : "text"}:${text}`;
     const cached = shapedRuns.get(cacheKey);
     if (cached) return cached;
     const run = shaper.shape({
       text,
+      ...(codes ? { codes } : {}),
       font: selectedFont,
       direction,
       language: direction === "rtl" ? "ur" : "en",

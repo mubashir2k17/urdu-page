@@ -3,7 +3,8 @@ import type { ShapedGlyph, ShapedRun } from "@inpage/text-shaper";
 import type { PdfBackend } from "./backend.js";
 
 type Direction = "ltr" | "rtl";
-type Shape = (text: string, direction: Direction, style?: TextStyle) => ShapedRun;
+type Shape = (text: string, direction: Direction, style?: TextStyle,
+  codes?: readonly (number | undefined)[], legacyRunKind?: number) => ShapedRun;
 interface Token {text: string; style: TextStyle; run: ShapedRun; width: number; direction: Direction;
   pieces: {run:ShapedRun;style:TextStyle}[]}
 
@@ -56,27 +57,38 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
     const baseStyle = paragraph.runs.find(run => run.style)?.style ?? {fontSize:12};
     if(!saved)usedHeight+=baseStyle.paragraphBefore ?? 0;
     if (baseStyle.tabStops?.length && paragraph.runs.some(run=>run.text.includes("\t"))) {
-      const cells:{text:string;style:TextStyle}[][] = [[]];
+      const cells:{text:string;style:TextStyle;codes?:(number|undefined)[]|undefined;legacyRunKind?:number|undefined}[][] = [[]];
       for (const source of paragraph.runs) {
         const parts=source.text.split("\t");
+        let scalarOffset=0;
         parts.forEach((text,index)=>{
           if(index)cells.push([]);
-          if(text)cells.at(-1)!.push({text,style:source.style ?? baseStyle});
+          const end=scalarOffset+[...text].length;
+          if(text)cells.at(-1)!.push({text,style:source.style ?? baseStyle,
+            codes:source.charCodes?.slice(scalarOffset,end),legacyRunKind:source.legacyRunKind});
+          scalarOffset=end+(index<parts.length-1?1:0);
         });
       }
       let distance=0,alignment=0;
       const stops=[...baseStyle.tabStops].sort((a,b)=>a.position-b.position);
       for (const [cellIndex,cell] of cells.entries()) {
-        const content=cell.map(part=>part.text).join("").trim();
+        const untrimmed=cell.map(part=>part.text).join("");
+        const content=untrimmed.trim();
+        const leading=[...untrimmed.slice(0,untrimmed.length-untrimmed.trimStart().length)].length;
+        const aligned=cell.every(part=>part.codes)?cell.flatMap(part=>part.codes!):undefined;
+        const codes=aligned?.slice(leading,leading+[...content].length);
+        const firstKind=cell[0]?.legacyRunKind;
+        const legacyRunKind=cell.every(part=>part.legacyRunKind===firstKind)?firstKind:undefined;
         const style=cell[0]?.style ?? baseStyle;
         const direction:Direction=/[\u0600-\u06ff]/.test(content)?"rtl":"ltr";
-        const run=shape(content,direction,style);
+        const run=shape(content,direction,style,codes,legacyRunKind);
         const cellWidth=backend.measureShapedRun(run,style.fontSize);
         const anchor=width-distance;
         let localX=anchor-cellWidth;
         if(alignment===1)localX=anchor;
         if(alignment===3 && content.includes(".")) {
-          localX=anchor-backend.measureShapedRun(shape(content.split(".")[0]!,direction,style),style.fontSize);
+          const prefix=content.split(".")[0]!;
+          localX=anchor-backend.measureShapedRun(shape(prefix,direction,style,codes?.slice(0,[...prefix].length),legacyRunKind),style.fontSize);
         }
         backend.drawShapedRun(run,x+localX,pageHeight-top-usedHeight-style.fontSize,style.fontSize,rotation,style);
         const next=stops.find(stop=>stop.position>distance+cellWidth+0.01);
@@ -90,28 +102,37 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
     const preserveLeadingSpaces=hasSavedSpacing || !!saved?.kashidaCount || !!saved;
     const preserveTrailingSpaces=hasSavedSpacing || !!saved?.kashidaCount;
     const tokens: Token[] = [];
-    const sources: {text:string;style:TextStyle;scalarStyles:TextStyle[]}[] = [];
+    const sources: {text:string;style:TextStyle;scalarStyles:TextStyle[];
+      charCodes?:(number|undefined)[]|undefined;legacyRunKind?:number|undefined}[] = [];
     for (const source of paragraph.runs) {
       const style = source.style ?? baseStyle;
       const previous = sources.at(-1);
       const shapeKey = (style:TextStyle) => JSON.stringify({...style,baselineShift:0,trackingEm:0,trackingPoints:0});
-      if (previous && shapeKey(previous.style) === shapeKey(style)) {
+      if (previous && previous.legacyRunKind === source.legacyRunKind && shapeKey(previous.style) === shapeKey(style)) {
         previous.text += source.text;
         previous.scalarStyles.push(...[...source.text].map(() => style));
-      } else sources.push({text:source.text,style,scalarStyles:[...source.text].map(() => style)});
+        previous.charCodes = previous.charCodes && source.charCodes
+          ? [...previous.charCodes,...source.charCodes] : undefined;
+      } else sources.push({text:source.text,style,scalarStyles:[...source.text].map(() => style),
+        charCodes:source.charCodes?.slice(),legacyRunKind:source.legacyRunKind});
     }
     for (const source of sources) {
       const style = source.style ?? baseStyle;
-      const shared = /[\u0600-\u06ff]/.test(source.text) && style.arabicFontName === "Noori Nastaliq"
-        ? shape(source.text, "rtl", style) : undefined;
+      const useShared = style.arabicFontName === "Noori Nastaliq" || source.legacyRunKind === 0x7f8b;
+      const candidate = /[\u0600-\u06ff]/.test(source.text) && useShared
+        ? shape(source.text,"rtl",style,source.charCodes,source.legacyRunKind) : undefined;
+      // A disabled/unavailable code shaper must retain the original token path.
+      const shared = source.legacyRunKind === 0x7f8b && !candidate?.legacyCodeShaped ? undefined : candidate;
       let scalarOffset = 0;
       for (const text of source.text.match(/\s+|[^\s]+/g) ?? []) {
         const direction: Direction = /[\u0600-\u06ff]/.test(text) ? "rtl" : "ltr";
         const end = scalarOffset + [...text].length;
+        const codes = source.charCodes?.slice(scalarOffset,end);
         const glyphs = shared?.glyphs.filter(glyph => glyph.cluster >= scalarOffset && glyph.cluster < end)
           .map(glyph => ({...glyph,cluster:glyph.cluster-scalarOffset}));
         const run = shared && glyphs ? {...shared, logicalText:text,glyphs,
-          totalAdvance:glyphs.reduce((sum,glyph) => sum+glyph.xAdvance,0)} : shape(text, direction, style);
+          totalAdvance:glyphs.reduce((sum,glyph) => sum+glyph.xAdvance,0)}
+          : shape(text,direction,style,codes,source.legacyRunKind);
         const pieces: Token["pieces"] = [];
         for (const originalGlyph of run.glyphs) {
           const glyph = {...originalGlyph};

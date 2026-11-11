@@ -34,6 +34,21 @@ describe("charmap", () => {
     expect(result.paragraphs[0]!.runs[0]!.text).toBe("\u0623");
   });
 
+  it("aligns legacy codes with Unicode scalars without changing rawCodes", () => {
+    const data = Uint8Array.from([4,0x82,0x20,4,0x81,4,0xbf,4,0x20,0x41]);
+    const run = decodeLegacy(data).paragraphs[0]!.runs[0]!;
+    expect(run.text).toBe("ب أ A");
+    expect(run.charCodes).toEqual([0x82,undefined,undefined,undefined,undefined]);
+    expect(run.charCodes).toHaveLength([...run.text].length);
+    expect(run.rawCodes).toEqual([0x82,0x81,0xbf,0x20]);
+  });
+
+  it("keeps one alignment gap per scalar of a multi-scalar composite", () => {
+    const run = decodeLegacy(Uint8Array.from([4,0xa4,4,0xbf])).paragraphs[0]!.runs[0]!;
+    expect(run.text).toBe("یئ");
+    expect(run.charCodes).toEqual([undefined,undefined]);
+  });
+
   it("keeps direct ASCII runs as literal text", () => {
     // "City" stored as raw bytes between tabs.
     const data = new Uint8Array([

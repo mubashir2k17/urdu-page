@@ -3,6 +3,7 @@
 // Usage:
 //   npm run visual:diff -- [--case "A3 sample"] [--dpi 110] [--threshold 0.90]
 //                         [--inpage-fonts fonts/inpage-local] [--out tmp/pdfs/visual-diff]
+//                         [--nooric] (experimental NOORIC record shaping)
 
 import { diffCase } from "./visual-diff.js";
 
@@ -26,6 +27,7 @@ const result = await diffCase(caseName, {
   ...(previewDpi ? { previewDpi: Number(previewDpi) } : {}),
   ...(inpageFonts ? { inpageFonts } : {}),
   ...(outDir ? { outDir } : {}),
+  ...(process.argv.includes("--nooric") ? { nooric: true } : {}),
 });
 for (const page of result.pages) {
   console.log(`${result.name} page ${page.page}: ${(page.overlap * 100).toFixed(2)}%`);

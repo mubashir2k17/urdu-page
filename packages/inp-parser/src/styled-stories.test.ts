@@ -58,6 +58,15 @@ describe("bounded v1 typography", () => {
     expect(story.cachedLayout!.lines.flatMap(line=>line.runs).every(run=>run.characterSpacing===undefined)).toBe(true);
   });
 
+  it("preserves aligned codes and native kinds in cached-layout runs",()=>{
+    const decoded=decodeStyledStories(data,"urdu")!;
+    const runs=decoded.stories.flatMap(story=>story.cachedLayout?.lines??[])
+      .flatMap(line=>line.runs).flatMap(run=>run.runs).filter(run=>run.legacyRunKind===0x7f8b);
+    expect(runs.length).toBeGreaterThan(0);
+    expect(runs.some(run=>run.charCodes?.some(code=>code!==undefined))).toBe(true);
+    for(const run of runs)expect(run.charCodes).toHaveLength([...run.text].length);
+  });
+
   it("rejects truncated or mismatched tables", () => {
     expect(decodeStyledStories(data.subarray(0, 14700), "urdu")).toBeUndefined();
     const damaged = data.slice();

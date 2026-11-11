@@ -83,7 +83,7 @@ export function decodeStyledStories(data: Uint8Array, mode: Mode): {stories: Sto
                         style.arabicFontName = style.bold ? "Trad Arabic Bold" : "Trad Arabic";
                         style.bold = false;
                       }
-                      runs.push({...part,style});
+                      runs.push({...part,style,legacyRunKind:run.kind});
                     }
                 });
                 return {x:run.x,width:run.width,...(run.kashidaCount?{kashidaCount:run.kashidaCount}:{}),...(run.characterSpacing===undefined?{}:{characterSpacing:run.characterSpacing,extraSpace:run.extraSpace ?? 0}),...(run.baseline===undefined?{}:{baseline:run.baseline}),

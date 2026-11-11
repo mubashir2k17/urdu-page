@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import fontkit from "@pdf-lib/fontkit";
-import { decodeInPageFontData, readInPageBankMetrics, readInPageIsolatedGlyph, HarfBuzzTextShaper, LegacyLigatureTextShaper, type LegacyLigatureGlyph } from "@inpage/text-shaper";
+import { decodeInPageFontData, readInPageBankMetrics, readInPageIsolatedGlyph, HarfBuzzTextShaper, LegacyLigatureTextShaper, NooricTextShaper, type LegacyLigatureGlyph, type NooricRecord, type ShapeFont, type TextShaper } from "@inpage/text-shaper";
 import type { RenderTypography } from "@inpage/pdf-renderer";
 import { CHAR_MAP_URDU } from "../packages/inp-parser/src/charmap.js";
 import { loadArabicFontFamilies } from "./inpage-arabic-fonts.js";
@@ -52,8 +52,52 @@ export function importInPageFonts(source: string, destination: string): void {
   console.log(`Copied ${inventory.length} font files; decoded ${ligatures.length} ligature mappings into ${destination}`);
 }
 
+interface ExtractedNooricTables {
+  default:{records:(Omit<NooricRecord,"glyphSlot"> & {glyphSlot?:number;s06?:number})[]};
+}
+
+function loadNooricTypography(directory:string,fallback:TextShaper):
+  {shaper:NooricTextShaper;faces:ShapeFont[];fontIds:string[]} | undefined {
+  const tablePath=join(directory,"nooric-tables.json");
+  const files=["NOORIC.UTF","NOORIC01.UTF","NOORIC02.UTF"];
+  if(!existsSync(tablePath) || !files.every(file=>existsSync(join(directory,file))))return undefined;
+  const tables=JSON.parse(readFileSync(tablePath,"utf8")) as ExtractedNooricTables;
+  const records:NooricRecord[]=tables.default.records.map(record=>{
+    const glyphSlot=record.glyphSlot ?? (record.s06 === undefined ? undefined : record.s06 & 0xff);
+    if(glyphSlot===undefined)throw new Error("NOORIC record has no glyph slot");
+    return {code:record.code,form:record.form,variant:record.variant,glyphSlot};
+  });
+  const loaded=files.map((file,variant)=>{
+    const bytes=readFileSync(join(directory,file));
+    const font=fontkit.create(bytes);
+    if(!("glyphForCodePoint" in font))throw new Error("NOORIC font collections are not supported");
+    return {face:{id:`inpage-nooric-${variant}`,bytes},font};
+  });
+  // Record variants predominantly resolve only in their corresponding cmap:
+  // variant 0 -> NOORIC, 1 -> NOORIC01, 2 -> NOORIC02.
+  const shaper=new NooricTextShaper({
+    records,
+    fontIds:loaded.map(({face})=>face.id),
+    unitsPerEm:loaded[0]!.font.unitsPerEm,
+    fallback,
+    resolver:{resolve(variant,slot) {
+      const face=loaded[variant];
+      if(!face || !Number.isInteger(slot) || slot<0 || slot>0xff)return undefined;
+      const glyph=face.font.glyphForCodePoint(0xf000+slot);
+      if(!glyph.id)return undefined;
+      return {glyphId:glyph.id,advance:glyph.advanceWidth,unitsPerEm:face.font.unitsPerEm};
+    }},
+  });
+  return {shaper,faces:loaded.map(({face})=>face),fontIds:loaded.map(({face})=>face.id)};
+}
+
+export interface InPageTypographyOptions {
+  /** Experimental NOORIC record shaping; disabled while context/ligature recovery is incomplete. */
+  nooric?: boolean;
+}
+
 /** Complete-word mappings with verified advancing/overlay component structure. */
-export function loadInPageTypography(directory: string): RenderTypography {
+export function loadInPageTypography(directory:string,options:InPageTypographyOptions={}): RenderTypography {
   const data = readFileSync(join(directory, "INPAGEU.DAT"));
   if (sha256(data) !== DATA_SHA256) throw new Error("Unrecognized INPAGEU.DAT");
   const fonts: RenderTypography["fonts"] = [];
@@ -141,10 +185,17 @@ export function loadInPageTypography(directory: string): RenderTypography {
   if(symbol){const metrics=fontkit.create(symbol.bytes);if("glyphForCodePoint" in metrics)cellScales.set(symbol.id,metrics.unitsPerEm/(metrics.ascent-metrics.descent));}
   const noori = new LegacyLigatureTextShaper(entries,true);
   const unicodeShaper=new HarfBuzzTextShaper();
+  const pashtoFallbackFont=arabic.names.get("Trad Arabic");
+  const pashtoFallbackShaper=pashtoFallbackFont?arabic.shapers.get(pashtoFallbackFont.id):undefined;
+  const nooric=options.nooric && pashtoFallbackFont && pashtoFallbackShaper
+    ? loadNooricTypography(directory,{shape(input) {
+      return pashtoFallbackShaper.shape({...input,font:pashtoFallbackFont});
+    }}) : undefined;
   return {
     // Reproduce the 600 dpi Windows print placement used by the legacy profile.
     glyphPositionDpi:600,
     shaper: {shape(input) {
+      if(nooric && input.font.id===nooric.fontIds[0])return nooric.shaper.shape(input);
       if(wineSymbol && input.font.id===symbol?.id) {
         const run=unicodeShaper.shape({...input,text:input.text.replaceAll("←","\uf0ac")});
         return {...run,logicalText:input.text,fontSizeScale:cellScales.get(input.font.id) ?? 1};
@@ -153,9 +204,13 @@ export function loadInPageTypography(directory: string): RenderTypography {
       const fontSizeScale=cellScales.get(input.font.id);
       return fontSizeScale ? {...run,fontSizeScale} : run;
     }},
-    fonts: [...fonts.filter(({ id }) => usedFonts.has(id)), ...latin.values(), ...arabic.fonts,...(symbol?[symbol]:[])],
-    resolveFont(style, direction) {
+    fonts: [...fonts.filter(({ id }) => usedFonts.has(id)), ...latin.values(), ...arabic.fonts,
+      ...(nooric?.faces ?? []),...(symbol?[symbol]:[])],
+    resolveFont(style,direction,legacyRunKind) {
       if(direction==="ltr" && style.latinFontName==="Symbol")return symbol;
+      // Only cached Pashto's native Noori Character route is known to use these
+      // records. Trad Arabic by itself, and bold style-biased runs, keep fallback.
+      if(nooric && direction==="rtl" && legacyRunKind===0x7f8b && style.arabicFontName==="Trad Arabic")return nooric.faces[0];
       if (direction === "rtl" && style.arabicFontName) return arabic.names.get(style.arabicFontName);
       if (direction !== "ltr" || style.latinFontName !== "Arial") return undefined;
       return latin.get(`${style.bold ? " Bold" : ""}${style.italic ? " Italic" : ""}`);

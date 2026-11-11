@@ -46,6 +46,8 @@ interface DiffOptions {
   previewDpi?: number;
   outDir?: string;
   inpageFonts?: string;
+  /** Opt into experimental NOORIC record shaping for comparison. */
+  nooric?: boolean;
 }
 
 function readPgm(path: string): GrayImage {
@@ -189,7 +191,8 @@ export async function diffCase(caseName: string, options: DiffOptions = {}): Pro
   const previewDpi = options.previewDpi ?? Math.max(metricDpi, 110);
   const outDir = resolve(options.outDir ?? "tmp/pdfs/visual-diff");
   mkdirSync(outDir, { recursive: true });
-  const typography = options.inpageFonts ? loadInPageTypography(resolve(options.inpageFonts)) : undefined;
+  const typography = options.inpageFonts
+    ? loadInPageTypography(resolve(options.inpageFonts),{...(options.nooric?{nooric:true}:{})}) : undefined;
   const generated = await renderCurrentPdf(referenceCase, undefined, typography);
 
   const generatedPdf = join(outDir, `${slug(caseName)}-current.pdf`);

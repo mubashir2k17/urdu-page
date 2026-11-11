@@ -1,5 +1,5 @@
 import {describe,expect,it,vi} from "vitest";
-import type {PageObject,Story} from "@inpage/document-model";
+import type {PageObject,Story,TextStyle} from "@inpage/document-model";
 import type {ShapedGlyph,ShapedRun} from "@inpage/text-shaper";
 import type {PdfBackend} from "./backend.js";
 import {drawStyledStory} from "./styled-layout.js";
@@ -75,6 +75,28 @@ describe("saved source layout",()=>{
     expect(draw.mock.calls.at(-1)![0].glyphs[1]!.yOffset).toBe(240);
     expect(draw.mock.calls.reduce((sum,call)=>sum+call[0].totalAdvance,0)).toBe(1500);
   });
+  it("threads aligned codes through shared shaping and cluster slicing",()=>{
+    const draw=vi.fn<PdfBackend["drawShapedRun"]>();
+    const backend:PdfBackend={addPage(){},measureShapedRun:(run,size)=>run.totalAdvance*size/run.unitsPerEm,
+      drawShapedRun:draw,async drawImage(){},drawLine(){},drawRectangle(){},async save(){return new Uint8Array();}};
+    const object:PageObject={id:1,kind:"text",bounds:{xPoints:0,yPoints:0,widthPoints:100,heightPoints:40},sourceOffset:0,confidence:"high"};
+    const story:Story={index:0,startOffset:0,endOffset:0,paragraphs:[],cachedLayout:{frameId:1,columnWidth:100,
+      contentHeight:40,columns:1,lines:[{height:40,baseline:20,width:100,runs:[{x:0,width:100,direction:"rtl",
+        runs:[{kind:"text",text:"ب ا",charCodes:[0x82,undefined,0x81],legacyRunKind:0x7f8b,
+          style:{fontSize:20,arabicFontName:"Trad Arabic"}}]}]}]}};
+    const calls:{text:string;codes?:readonly (number|undefined)[];kind?:number}[]=[];
+    const shape=(text:string,direction:"ltr"|"rtl",_style?:TextStyle,
+      codes?:readonly (number|undefined)[],legacyRunKind?:number):ShapedRun=>{
+      calls.push({text,...(codes?{codes}:{}),...(legacyRunKind===undefined?{}:{kind:legacyRunKind})});
+      const glyphs=[...text].map((_,cluster)=>({id:cluster+1,cluster,xAdvance:500,yAdvance:0,xOffset:0,yOffset:0})).reverse();
+      return {logicalText:text,fontId:"test",direction,language:"ur",script:"arab",unitsPerEm:1000,
+        legacyCodeShaped:true,glyphs,totalAdvance:glyphs.length*500,missingGlyphCount:0};
+    };
+    drawStyledStory(story,object,backend,shape,200);
+    expect(calls).toEqual([{text:"ب ا",codes:[0x82,undefined,0x81],kind:0x7f8b}]);
+    expect(draw.mock.calls.map(call=>call[0].logicalText)).toEqual(["ا"," ","ب"]);
+  });
+
   it("draws overlapping runs even when tracking gives them zero or negative advance",()=>{
     const draw=vi.fn<PdfBackend["drawShapedRun"]>();
     const backend:PdfBackend={addPage(){},measureShapedRun:(run,size)=>run.totalAdvance*size/run.unitsPerEm,

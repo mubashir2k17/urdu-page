@@ -9,7 +9,8 @@ export async function renderPositionedPage(
   document: InPageDocument,
   backend: PdfBackend,
   outputHeight: number,
-  shape: (text: string, direction: Direction, style?: TextStyle) => ShapedRun,
+  shape: (text: string, direction: Direction, style?: TextStyle,
+    codes?: readonly (number | undefined)[], legacyRunKind?: number) => ShapedRun,
 ): Promise<void> {
   const storyByReference = associateStoriesWithReferences(document);
   const imageByName = new Map(document.images.map((image) => [image.name.toLowerCase(), image]));
