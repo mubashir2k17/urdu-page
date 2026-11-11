@@ -15,6 +15,8 @@ Addresses are virtual addresses in the image (base `0x400000`).
 - [noori-shaping.md](./noori-shaping.md) — full Noori/Pashto pipeline: record
   layout, selector algorithm, form computation, advances/kashida, and the
   extracted 44-byte record tables.
+- [drawing-records.md](./drawing-records.md) — v1 object tag-stream grammar
+  (keys, groups, value widths) and which properties are/aren't stored.
 
 ## Data loader and DAT transform
 
