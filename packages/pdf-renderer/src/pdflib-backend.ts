@@ -519,8 +519,8 @@ export class PdfLibBackend implements PdfBackend {
         if (shouldFill) {
           this.currentPage.drawRectangle({x,y:pageHeight-top-height,width,height,color:rgb(shade,shade,shade)});
         }
-        const effectiveTop = (object.id === 48 || Math.abs(top - 620.64) < 0.5) ? 620.52 : top;
-        const effectiveBottom = (object.id === 48 || Math.abs(top + height - 805.89) < 0.5) ? 805.80 : top + height;
+        const effectiveTop = snapToDevice(top);
+        const effectiveBottom = snapToDevice(top + height);
         const bw = 0.96;
         // Top border as compound horizontal rule
         this.currentPage.pushOperators(
@@ -598,16 +598,14 @@ export class PdfLibBackend implements PdfBackend {
       }
       if (object.borderStyle === 17 && borderWidth > 0) {
         const bw = borderWidth;
-        const STYLE17_STARTS_X = [5.4,12.24,19.2,26.04,33,39.96,46.8,53.76,60.6,67.56,74.52,81.36,88.32,95.28,102.12,109.08,115.92,122.88,129.84,136.68,143.64,150.48,157.44,164.4,171.24,178.2,185.04,192,198.96,205.8,212.76,219.6,226.56,233.52,240.36,247.32,254.28,261.12,268.08,274.92,281.88,288.84,295.68,302.64,309.48,316.44,323.4,330.24,337.2,344.04,351,357.96,364.8,371.76,378.6,385.56,392.52,399.36,406.32,413.28,420.12,427.08,433.92];
-        const STYLE17_STARTS_Y = [5.76,13.08,20.52,27.84,35.16,42.48,49.8,57.12];
-        const startsX = (Math.abs(width - 448.46) < 1 || Math.abs(width - 448.32) < 1) ? STYLE17_STARTS_X : [];
+        const startsX: number[] = [];
         if (startsX.length === 0) {
           for (let s = 1.8 * bw, stepIdx = 0; s + 3 * bw <= width; stepIdx++) {
             startsX.push(Number(s.toFixed(2)));
             s += (stepIdx % 2 === 0 ? 2.28 * bw : 2.32 * bw);
           }
         }
-        const startsY = (Math.abs(height - 72) < 1) ? STYLE17_STARTS_Y : [];
+        const startsY: number[] = [];
         if (startsY.length === 0) {
           for (let s = 1.92 * bw, stepIdx = 0; s + 3 * bw <= height; stepIdx++) {
             startsY.push(Number(s.toFixed(2)));
@@ -629,32 +627,32 @@ export class PdfLibBackend implements PdfBackend {
         };
 
         // Top edge
-        addPoly([[x, pageHeight - top - bw], [x, pageHeight - top], [x + 7.44, pageHeight - top], [x + 4.44, pageHeight - top - bw]]);
+        addPoly([[x, pageHeight - top - bw], [x, pageHeight - top], [x + 2.48 * bw, pageHeight - top], [x + 1.48 * bw, pageHeight - top - bw]]);
         for (const s of startsX) {
           addPoly([[x + s, pageHeight - top - bw], [x + s + bw, pageHeight - top], [x + s + 3 * bw, pageHeight - top], [x + s + 2 * bw, pageHeight - top - bw]]);
         }
-        addPoly([[x + 440.88, pageHeight - top - bw], [x + 443.88, pageHeight - top], [x + width, pageHeight - top], [x + width, pageHeight - top - bw]]);
+        addPoly([[x + width - 2.52 * bw, pageHeight - top - bw], [x + width - 1.52 * bw, pageHeight - top], [x + width, pageHeight - top], [x + width, pageHeight - top - bw]]);
 
         // Right edge
-        addPoly([[x + width, pageHeight - top], [x + width - bw, pageHeight - top], [x + width - bw, pageHeight - top - 7.44], [x + width, pageHeight - top - 4.44]]);
+        addPoly([[x + width, pageHeight - top], [x + width - bw, pageHeight - top], [x + width - bw, pageHeight - top - 2.48 * bw], [x + width, pageHeight - top - 1.48 * bw]]);
         for (const s of startsY) {
           addPoly([[x + width, pageHeight - top - s], [x + width - bw, pageHeight - top - s - bw], [x + width - bw, pageHeight - top - s - 3 * bw], [x + width, pageHeight - top - s - 2 * bw]]);
         }
-        addPoly([[x + width, pageHeight - top - 64.44], [x + width - bw, pageHeight - top - 67.44], [x + width - bw, pageHeight - top - height], [x + width, pageHeight - top - height]]);
+        addPoly([[x + width, pageHeight - top - (height - 2.52 * bw)], [x + width - bw, pageHeight - top - (height - 1.52 * bw)], [x + width - bw, pageHeight - top - height], [x + width, pageHeight - top - height]]);
 
         // Bottom edge
-        addPoly([[x, pageHeight - top - height], [x, pageHeight - top - height + bw], [x + 7.44, pageHeight - top - height + bw], [x + 4.44, pageHeight - top - height]]);
+        addPoly([[x, pageHeight - top - height], [x, pageHeight - top - height + bw], [x + 2.48 * bw, pageHeight - top - height + bw], [x + 1.48 * bw, pageHeight - top - height]]);
         for (const s of startsX) {
           addPoly([[x + s, pageHeight - top - height], [x + s + bw, pageHeight - top - height + bw], [x + s + 3 * bw, pageHeight - top - height + bw], [x + s + 2 * bw, pageHeight - top - height]]);
         }
-        addPoly([[x + 440.88, pageHeight - top - height], [x + 443.88, pageHeight - top - height + bw], [x + width, pageHeight - top - height + bw], [x + width, pageHeight - top - height]]);
+        addPoly([[x + width - 2.52 * bw, pageHeight - top - height], [x + width - 1.52 * bw, pageHeight - top - height + bw], [x + width, pageHeight - top - height + bw], [x + width, pageHeight - top - height]]);
 
         // Left edge
-        addPoly([[x + bw, pageHeight - top], [x, pageHeight - top], [x, pageHeight - top - 7.44], [x + bw, pageHeight - top - 4.44]]);
+        addPoly([[x + bw, pageHeight - top], [x, pageHeight - top], [x, pageHeight - top - 2.48 * bw], [x + bw, pageHeight - top - 1.48 * bw]]);
         for (const s of startsY) {
           addPoly([[x + bw, pageHeight - top - s], [x, pageHeight - top - s - bw], [x, pageHeight - top - s - 3 * bw], [x + bw, pageHeight - top - s - 2 * bw]]);
         }
-        addPoly([[x + bw, pageHeight - top - 64.44], [x, pageHeight - top - 67.44], [x, pageHeight - top - height], [x + bw, pageHeight - top - height]]);
+        addPoly([[x + bw, pageHeight - top - (height - 2.52 * bw)], [x, pageHeight - top - (height - 1.52 * bw)], [x, pageHeight - top - height], [x + bw, pageHeight - top - height]]);
 
         this.currentPage.pushOperators(...borderOps);
       }

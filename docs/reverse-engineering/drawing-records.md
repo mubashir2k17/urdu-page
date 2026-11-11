@@ -109,6 +109,13 @@ So the generic boundary for a polygon graphic is the decoded polygon itself
 (`computeGraphicBoundary` in `packages/pdf-renderer/src/pdflib-backend.ts`);
 no ellipse/offset model is needed, and no object-id branching.
 
+Rendering status: the `object.id` branches and numeric fixture constants have
+been removed from `pdflib-backend.ts`. Text-box borders snap decoded bounds to
+the 0.12 pt device grid (which reproduces the former 620.52/805.80 values
+exactly); style-17 dashes use generic `bw`-scaled stepping. SAMPLE2 overlap is
+81.62% (vs 81.91% with the removed fixture-tuned data); the residual difference
+is the style-17 dash phase.
+
 ## Reproduce
 
 ```bash
