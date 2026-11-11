@@ -31,12 +31,13 @@ npm run audit:references -- --case sample --inpage-fonts fonts/inpage-local
 
 This copies the original fonts and ligature data into ignored local storage,
 then uses verified whole-word Noori glyphs, source widths, and two-component
-overlays with Unicode fallback for unmatched words.
-The preview is `output/pdf/inpage-font-comparison.pdf`; experimental
-audit output is `tmp/pdfs/inpage-font-audit/`. Noto remains the default: Sample 2
-currently scores 14.2% overlap with original word glyphs versus 14.3% default.
-See [font recovery findings](./docs/research/inpage-font-banks.md) for supported
-data identity, offsets, rendering limits, and reproduction steps.
+overlays with Unicode fallback for unmatched words. It also extracts the
+native NOORIC record tables (`nooric-tables.json`) for the character shaper.
+The preview is `output/pdf/inpage-font-comparison.pdf`; audit output is
+`tmp/pdfs/inpage-font-audit/`. With the local-font profile, SAMPLE2 currently
+scores **81.62%** ink overlap at 36 dpi (the default Noto path is lower). See
+[font recovery findings](./docs/research/inpage-font-banks.md) and the
+[reverse-engineering notes](./docs/reverse-engineering/README.md).
 
 ## Usage
 
@@ -68,15 +69,26 @@ inp2pdf render input.inp --pages 1-3 --format png   # phase 2 (not implemented)
 ## Testing
 
 ```bash
-npm test                  # fast unit and integration suite
-npm run test:references   # verify all supplied INP/PDF reference pairs
-npm run audit:references  # metadata, searchable-text, and sampled raster report
-npm run audit:references -- --strict  # fail while any reference mismatch remains
+npm test                       # fast unit and integration suite
+npm run test:references        # verify all supplied INP/PDF reference pairs
+npm run test:visual            # gated SAMPLE2 >= 90% ink-overlap check
+npm run audit:references       # metadata, searchable-text, and raster report
+npm run visual:diff -- --case "A3 sample" --inpage-fonts fonts/inpage-local
 ```
 
-The reference audit writes generated PDFs, page rasters, and `report.json` under
-`tmp/pdfs/reference-audit/`. See [tests/README.md](./tests/README.md) for the
-manifest, comparison rules, and current limitations.
+The reference audit and visual diff write generated PDFs, rasters, and a
+three-panel diff PNG (reference | generated | diff) under `tmp/pdfs/`. Poppler
+(`pdftoppm`, `pdftotext`, `pdfinfo`) must be available; `visual:diff` also
+locates a winget Poppler install automatically. See
+[tests/README.md](./tests/README.md) and ADR-018.
+
+## Reverse engineering
+
+Undocumented format behavior is verified against the installed InPage binary
+(REA + Ghidra) and recorded as text evidence in
+[docs/reverse-engineering](./docs/reverse-engineering/README.md). The vendor
+binary, fonts, and data are never committed; see ADR-014 for the workflow.
+Generic decoding decisions are recorded in ADRs 015–018.
 
 ## Architecture
 
