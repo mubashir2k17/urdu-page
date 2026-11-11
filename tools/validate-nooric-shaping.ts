@@ -11,12 +11,14 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
 import {
+  advanceWidth,
   ALTERNATE_RECORD_COUNT,
   DEFAULT_RECORD_COUNT,
   distinctCodes,
   extractNooricTables,
   formHistogram,
   formsForCode,
+  glyphSlot,
   type NooricTables,
 } from "./nooric-table.js";
 import {
@@ -160,6 +162,28 @@ if (!record0 || !record3) {
     `info 0x81/0 -> ${faceFamily(encoded0.faceCode)} token 0x${encoded0.tokenCode.toString(16)}; ` +
       `0x82/0 -> ${faceFamily(encoded3.faceCode)} token 0x${encoded3.tokenCode.toString(16)}`,
   );
+}
+
+// --- Width table and glyph slot --------------------------------------------
+
+if (tables.nooricWidths.length === 0) {
+  console.log("info NOORIC width table is runtime-initialized in .data; not statically extracted");
+} else {
+  check(
+    "NOORIC width table shape (3 x 256)",
+    tables.nooricWidths.length === 3 && tables.nooricWidths.every((row) => row.length === 256),
+    `${tables.nooricWidths.length} x ${tables.nooricWidths[0]?.length ?? 0}`,
+  );
+  const nonzeroWidths = tables.nooricWidths.flat().filter((width) => width !== 0).length;
+  check("NOORIC width table populated", nonzeroWidths > 0, `${nonzeroWidths} nonzero of 768`);
+}
+
+if (record0) {
+  check("glyph slot is record+6 low byte", glyphSlot(record0) === (record0.s06 & 0xff));
+  if (tables.nooricWidths.length > 0) {
+    const width = advanceWidth(tables, record0);
+    check("advance width resolves", width !== undefined, `got ${width}`);
+  }
 }
 
 // --- Cross-table -----------------------------------------------------------

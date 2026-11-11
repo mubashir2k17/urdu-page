@@ -38,4 +38,13 @@ for (const table of [tables.default, tables.alternate]) {
       `${distinctCodes(table).size} codes, forms ${histogram}`,
   );
 }
+const widths = tables.nooricWidths;
+if (widths.length === 0) {
+  console.log("nooric widths: runtime-initialized in .data; not statically extractable");
+} else {
+  console.log(
+    `nooric widths: ${widths.length} variants x ${widths[0]?.length ?? 0} slots, ` +
+      `${widths.flat().filter((value) => value !== 0).length} nonzero`,
+  );
+}
 console.log(`Wrote ${output}`);

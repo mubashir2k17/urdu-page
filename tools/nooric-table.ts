@@ -50,6 +50,8 @@ export interface NooricTables {
   imageBase: number;
   default: NooricTable;
   alternate: NooricTable;
+  /** Per-variant (3) x slot (256) advance widths for the NOORIC face family. */
+  nooricWidths: readonly (readonly number[])[];
 }
 
 export const RECORD_SIZE = 44;
@@ -59,6 +61,10 @@ export const DEFAULT_RECORD_COUNT = 0x443;
 export const ALTERNATE_RECORD_COUNT = 0x43f;
 export const DEFAULT_POINTER_VA = 0x4fef8c;
 export const ALTERNATE_POINTER_VA = 0x4fef88;
+/** `(&DAT_0064ab3c)[3]` — NOORIC (face family 3) advance-width table pointer. */
+export const NOORIC_WIDTH_POINTER_VA = 0x64ab48;
+export const NOORIC_VARIANTS = 3;
+export const NOORIC_SLOTS = 256;
 const CONTEXT_TERMINATOR = 0x80;
 const MAX_CONTEXT_ENTRIES = 256;
 
@@ -174,6 +180,30 @@ function readTable(
   return { kind, address: tableVa, records };
 }
 
+function readNooricWidths(image: PeImage): number[][] {
+  let table: number;
+  try {
+    table = readPointer(image, NOORIC_WIDTH_POINTER_VA);
+  } catch {
+    // Pointer lives in uninitialized .data; populated at runtime from DAT.
+    return [];
+  }
+  if (!table) return [];
+  const variants: number[][] = [];
+  try {
+    for (let variant = 0; variant < NOORIC_VARIANTS; variant++) {
+      const row: number[] = [];
+      for (let slot = 0; slot < NOORIC_SLOTS; slot++) {
+        row.push(u16(image.bytes, vaToOffset(image, table + (variant * NOORIC_SLOTS + slot) * 2)));
+      }
+      variants.push(row);
+    }
+  } catch {
+    return [];
+  }
+  return variants;
+}
+
 export function extractNooricTables(bytes: Uint8Array): NooricTables {
   const image = parsePe(bytes);
   return {
@@ -190,7 +220,22 @@ export function extractNooricTables(bytes: Uint8Array): NooricTables {
       readPointer(image, ALTERNATE_POINTER_VA),
       ALTERNATE_RECORD_COUNT,
     ),
+    nooricWidths: readNooricWidths(image),
   };
+}
+
+/** Glyph slot rendered for a record: the emitter draws the byte at record+6. */
+export function glyphSlot(record: NooricRecord): number {
+  return record.s06 & 0xff;
+}
+
+/** Advance width for a record's variant/slot, from the native width table. */
+export function advanceWidth(
+  tables: NooricTables,
+  record: NooricRecord,
+): number | undefined {
+  const row = tables.nooricWidths[record.variant];
+  return row?.[glyphSlot(record)];
 }
 
 export function formHistogram(table: NooricTable): Map<number, number> {

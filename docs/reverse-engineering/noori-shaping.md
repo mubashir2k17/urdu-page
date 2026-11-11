@@ -67,7 +67,7 @@ Offsets are relative to record start. "Evidence" cites the decompiled use.
 | `0x00` | int16 | key code (legacy second byte, `0x81`–…) | compared to input code in `FUN_00413060`; sort key in `FUN_004125b0` | high |
 | `0x02` | int16 | form: 0 isolated, 1 final, 2 medial, 3 initial, 4 any/ligature | compared to computed form; `==4` suppresses advance | high |
 | `0x04` | int16 | NOORIC sub-variant (observed 0–2); face code `= + 0xea + styleBias` | `param_5[o] = record[+4] + sVar20 + 0xea` | high |
-| `0x06` | int16 | glyph/outline data start (copied 0x2c bytes) | passed as pointer `record+6` to `FUN_00401b10` | medium |
+| `0x06` | int16 | glyph slot in the NOORIC face; low byte is the rendered char | `FUN_00401b10` calls `TextOutA(…, record+6, 1)`; width lookup indexes this slot | high |
 | `0x08` | int16 | glyph/outline metric field | copied into emitter locals | medium |
 | `0x0a` | int16 | glyph/outline metric field | copied into emitter locals | medium |
 | `0x0c` | int32 (or 2×int16) | signed pen/offset applied by emitter | `record[+0xc]` sign toggles pen add/sub in `FUN_0040a2a0` | medium |
@@ -106,9 +106,11 @@ Because `variant` ∈ {0,1,2}, face codes `0xea`–`0xec` land at faceIndex
 banks are a different face range reached through the root-slot path, not this
 table.
 
-The record token `r + 0x21` is **not** a glyph id. The emitter `FUN_00414b90`
-copies the record and passes `record + 6` to `FUN_00401b10`; the exact glyph-id
-field is still open (see below).
+Resolution: the glyph is the single byte at `record + 0x06` (low byte), drawn with
+`TextOutA` in the face selected by `variant`. `FUN_00409060` indexes the
+per-variant advance table by that same slot. The record token `r + 0x21` only
+points back to the record; it is not the glyph. See
+`tools/nooric-table.ts` (`glyphSlot`, `advanceWidth`).
 
 `styleBias` (`DAT_0064a0a8`): `0` when `< 3`, else `weight*3 - 6`. It shifts the
 face code and is the native synthetic-bold/face switch; reset it after a bold
@@ -189,11 +191,14 @@ were produced by it.
 
 ## Open questions (next pass)
 
-1. Exact bytes `0x06`–`0x0a` and `0x16`–`0x2a` (glyph outline/mark data vs
-   metrics) — resolve by comparing emitter output to a known reference word.
+1. Fields `0x08`, `0x0a`, and `0x16`–`0x2a` (extra glyph/mark metrics) — resolve
+   against a known reference word.
 2. The three table pointers in `PTR_DAT_004fef84..8c`: which font families map
    to which table (default Noori vs Aasaar/Trad Arabic).
 3. `FUN_00412660/004126a0/004126f0/004127c0/00412eb0` exact semantics
    (previous/next context match, ligature range rewrite).
 4. Class tables `DAT_004e70b8/004e71b8/004e72b8/004e73b8/004e7584/004e775c/
    004e78bc` contents (bit meanings).
+5. NOORIC advance-width table: `(&DAT_0064ab3c)[3]` is zero in the file and
+   filled at runtime (uninitialized `.data`); recover by tracing the init write
+   or approximate with font metrics.
