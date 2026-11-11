@@ -20,6 +20,8 @@ export interface ShapeFont {
 export interface ShapeInput {
   /** Logical Unicode text for one already-segmented run. */
   text: string;
+  /** Legacy InPage character codes for this run, when available. */
+  codes?: readonly number[];
   font: ShapeFont;
   direction: TextDirection;
   language: string;
@@ -46,6 +48,13 @@ export { LegacyLigatureTextShaper } from "./legacy-ligature-shaper.js";
 export type { LegacyLigatureGlyph } from "./legacy-ligature-shaper.js";
 export { LegacyArabicTextShaper } from "./legacy-arabic-shaper.js";
 export type { ArabicGlyphSubstitution, ArabicLetterForms } from "./legacy-arabic-shaper.js";
+export { NooricTextShaper } from "./nooric-shaper.js";
+export type {
+  NooricRecord,
+  NooricGlyphResolver,
+  ResolvedGlyph,
+  NooricTextShaperOptions,
+} from "./nooric-shaper.js";
 
 export interface ShapedRun {
   logicalText: string;

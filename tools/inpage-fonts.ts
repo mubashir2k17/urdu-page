@@ -6,6 +6,7 @@ import { decodeInPageFontData, readInPageBankMetrics, readInPageIsolatedGlyph, H
 import type { RenderTypography } from "@inpage/pdf-renderer";
 import { CHAR_MAP_URDU } from "../packages/inp-parser/src/charmap.js";
 import { loadArabicFontFamilies } from "./inpage-arabic-fonts.js";
+import { extractNooricTables } from "./nooric-table.js";
 
 const DATA_SHA256 = "b4f4136b8b4e36ebcd3bb101904be79c35786437334fcd8a7e7c89253ba3225d";
 const sha256 = (bytes: Uint8Array): string => createHash("sha256").update(bytes).digest("hex");
@@ -36,6 +37,18 @@ export function importInPageFonts(source: string, destination: string): void {
   writeFileSync(join(destination, "inventory.json"), JSON.stringify({
     dataSha256: DATA_SHA256, ligatureCount: ligatures.length, fonts: inventory,
   }, null, 2) + "\n");
+  for (const exeName of ["Inpage 2018_original.exe", "Inpage 2018.exe", "Inpage.exe"]) {
+    const exePath = join(source, exeName);
+    if (!existsSync(exePath)) continue;
+    try {
+      const tables = extractNooricTables(readFileSync(exePath));
+      writeFileSync(join(destination, "nooric-tables.json"), `${JSON.stringify(tables)}\n`);
+      console.log(`Extracted NOORIC record tables from ${exeName}`);
+    } catch (error) {
+      console.warn(`Could not extract NOORIC tables from ${exeName}: ${(error as Error).message}`);
+    }
+    break;
+  }
   console.log(`Copied ${inventory.length} font files; decoded ${ligatures.length} ligature mappings into ${destination}`);
 }
 
