@@ -76,10 +76,21 @@ application derives the curved text-wrap boundary (ellipse/bezier) internally.
 Runtime path: `FUN_004d4ef0` is a GDI path builder that consumes a point array
 plus per-point opcodes (`02/03` line/close, `04/05` bezier/close, `06` move) and
 emits `PolyBezierTo`/`LineTo`/`CloseFigure`; callers then call `PathToRegion`.
-The point/opcode buffer is owned by an object (a getter returns `[this+4]`), and
-the method that builds it for a polygon object is not yet recovered. Replacing
-the hardcoded 100-point clip therefore requires reconstructing that C++ object
-method, not decoding another INP field.
+
+Related recovered machinery:
+
+| Address | Role |
+|---|---|
+| `0x41b410` | Ellipse sampler: points from `sqrt(1-(y/b)^2)*a`, ~20 points, with `cos/sin(π/4)` scaling. |
+| `0x41b860` | Sets path opcodes: every point `4` (bezier), first `6` (move), last OR `1` (close); rewrites coordinates. |
+| `0x4d4ef0` | Replays the point+opcode buffer into GDI `LineTo`/`PolyBezierTo`/`CloseFigure`. |
+| `0x4d5160` | Object getter returning `[this+4]` (path point buffer). |
+
+Caveat: the `0x41b860` caller examined (`0x4d2710`, case 4 of a pattern switch)
+uses this machinery for **ellipse pattern cells**, not for the 34/35 border.
+The 34/35 curved clip is therefore still unexplained; it is plausibly a
+GDI-flattened rounded/pen-stroke path. Replacing the hardcoded clip requires
+establishing that specific caller (open item).
 
 This means: replacing the object-id hardcoding with generic decoded properties
 is possible for fills, patterns, border widths/styles, rotation, and the polygon
