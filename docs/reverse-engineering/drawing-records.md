@@ -26,7 +26,7 @@ group and key:
 | Group | Meaning | Value width |
 |---|---|---|
 | `0x7e` | drawing property | 4 bytes for keys `00,01,02,03,05,1a,1b,1c`; else 2 bytes |
-| `0x03` | story/text property | 4 bytes for key `08`; else 2 bytes |
+| `0x03` | story/text property | 4 bytes for keys `06,08`; else 2 bytes |
 | `0x05` | shape property | 2 bytes |
 | other | not a tag (end of stream / trailing bytes) | stop |
 
@@ -57,6 +57,15 @@ Verified against parsed `PageObject`s and the source payloads.
 | `0x0c` | 0x05 | shape flag (1 on polygon objects) | — |
 | `0x05` | 0x03 | story/text flag | 1 |
 | `0x08` | 0x03 | story reference (u32) | 418, 430, 380 |
+
+## Image records
+
+Image records (kind 5 with a `PPicts…` name) prepend a null-terminated ASCII
+path header, then an image-property block using group `0x05` (4-byte values for
+keys `1..4`, 2-byte for `5,8,9,0c`), then the normal `0x7e` draw entries. The
+`0x80 00 FF FF FF FF` prefix can appear at offset 2 rather than 0. The parser
+keeps a scan-based fallback for image records until this header is decoded
+sequentially.
 
 ## What the grammar does NOT contain
 

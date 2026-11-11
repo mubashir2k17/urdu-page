@@ -51,7 +51,7 @@ function entries(payload: Uint8Array): Entry[] {
     const width = group === 0x7e
       ? (WIDE_KEYS.has(key) ? 4 : 2)
       : group === 0x03
-        ? (key === 0x08 ? 4 : 2)
+        ? (key === 0x08 || key === 0x06 ? 4 : 2)
         : group === 0x05 ? 2 : 0;
     if (width === 0) break;
     if (offset + 2 + width > payload.length) break;
