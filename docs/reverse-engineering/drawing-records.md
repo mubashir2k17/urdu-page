@@ -72,9 +72,14 @@ sequentially.
 The curved wrap boundary used by graphics 34/35 is **not** in the tag stream:
 the record only carries a 4-point polygon, fill, and style. The native
 application derives the curved text-wrap boundary (ellipse/bezier) internally.
-The current renderer's hardcoded 100-point clip therefore cannot be replaced by
-a decoded field until that derivation is recovered from the executable
-(wrap/geometry code), not from the document.
+
+Runtime path: `FUN_004d4ef0` is a GDI path builder that consumes a point array
+plus per-point opcodes (`02/03` line/close, `04/05` bezier/close, `06` move) and
+emits `PolyBezierTo`/`LineTo`/`CloseFigure`; callers then call `PathToRegion`.
+The point/opcode buffer is owned by an object (a getter returns `[this+4]`), and
+the method that builds it for a polygon object is not yet recovered. Replacing
+the hardcoded 100-point clip therefore requires reconstructing that C++ object
+method, not decoding another INP field.
 
 This means: replacing the object-id hardcoding with generic decoded properties
 is possible for fills, patterns, border widths/styles, rotation, and the polygon
