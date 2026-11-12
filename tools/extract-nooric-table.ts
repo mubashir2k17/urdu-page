@@ -47,4 +47,9 @@ if (widths.length === 0) {
       `${widths.flat().filter((value) => value !== 0).length} nonzero`,
   );
 }
+console.log(
+  `selector classes: ${tables.classes.transparent.length} transparent, ` +
+    `${tables.classes.ligatureLeft.length}/${tables.classes.ligatureRight.length} ligature pair, ` +
+    `${tables.classes.rangeA.length} range-A entries`,
+);
 console.log(`Wrote ${output}`);

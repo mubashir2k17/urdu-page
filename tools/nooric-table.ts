@@ -5,6 +5,10 @@
 // The record table lives in the PE `.data` section. Pointers at
 // 0x4fef84/0x4fef88/0x4fef8c select the default and alternate tables.
 
+import type { NooricClassTables } from "@inpage/text-shaper";
+
+export type { NooricClassTables } from "@inpage/text-shaper";
+
 export interface PeSection {
   name: string;
   virtualAddress: number;
@@ -52,6 +56,8 @@ export interface NooricTables {
   alternate: NooricTable;
   /** Per-variant (3) x slot (256) advance widths for the NOORIC face family. */
   nooricWidths: readonly (readonly number[])[];
+  /** Static selector class tables (see NooricClassTables). */
+  classes: NooricClassTables;
 }
 
 export const RECORD_SIZE = 44;
@@ -67,6 +73,32 @@ export const NOORIC_VARIANTS = 3;
 export const NOORIC_SLOTS = 256;
 const CONTEXT_TERMINATOR = 0x80;
 const MAX_CONTEXT_ENTRIES = 256;
+
+/** Static selector tables (`FUN_00413060`). */
+export const CLASS_TABLE_ADDRESSES = {
+  breakNext: 0x4e70b8,
+  joinCapable: 0x4e71b8,
+  nonJoining: 0x4e72b8,
+  rangeA: 0x4e73b8,
+  rangeB: 0x4e745c,
+  rangeC: 0x4e74ac,
+  rangeD: 0x4e74b8,
+  rangeE: 0x4e74bc,
+  rangeF: 0x4e74c8,
+  rangeG: 0x4e74f8,
+  rangeH: 0x4e7534,
+  ligatureRight: 0x4e7584,
+  rangeI: 0x4e7608,
+  rangeBreak: 0x4e7644,
+  ligatureLeft: 0x4e775c,
+  rangeJ: 0x4e7828,
+  rangeK: 0x4e7880,
+  rangeL: 0x4e7888,
+  rangeM: 0x4e7890,
+  transparent: 0x4e78bc,
+  rangeN: 0x4e78ec,
+  rangeO: 0x4e7908,
+} as const;
 
 function u16(bytes: Uint8Array, o: number): number {
   return bytes[o]! | (bytes[o + 1]! << 8);
@@ -204,6 +236,49 @@ function readNooricWidths(image: PeImage): number[][] {
   return variants;
 }
 
+function readByteTable(image: PeImage, va: number): number[] {
+  const offset = vaToOffset(image, va);
+  return Array.from(image.bytes.subarray(offset, offset + 256));
+}
+
+function readShortList(image: PeImage, va: number): number[] {
+  const offset = vaToOffset(image, va);
+  const values: number[] = [];
+  for (let index = 0; index < MAX_CONTEXT_ENTRIES; index++) {
+    const value = u16(image.bytes, offset + index * 2);
+    if (value === CONTEXT_TERMINATOR) return values;
+    values.push(value);
+  }
+  throw new Error(`Unterminated class list at VA 0x${va.toString(16)}`);
+}
+
+function readClassTables(image: PeImage): NooricClassTables {
+  return {
+    breakNext: readByteTable(image, CLASS_TABLE_ADDRESSES.breakNext),
+    joinCapable: readByteTable(image, CLASS_TABLE_ADDRESSES.joinCapable),
+    nonJoining: readByteTable(image, CLASS_TABLE_ADDRESSES.nonJoining),
+    transparent: readShortList(image, CLASS_TABLE_ADDRESSES.transparent),
+    ligatureLeft: readShortList(image, CLASS_TABLE_ADDRESSES.ligatureLeft),
+    ligatureRight: readShortList(image, CLASS_TABLE_ADDRESSES.ligatureRight),
+    rangeBreak: readShortList(image, CLASS_TABLE_ADDRESSES.rangeBreak),
+    rangeA: readShortList(image, CLASS_TABLE_ADDRESSES.rangeA),
+    rangeB: readShortList(image, CLASS_TABLE_ADDRESSES.rangeB),
+    rangeC: readShortList(image, CLASS_TABLE_ADDRESSES.rangeC),
+    rangeD: readShortList(image, CLASS_TABLE_ADDRESSES.rangeD),
+    rangeE: readShortList(image, CLASS_TABLE_ADDRESSES.rangeE),
+    rangeF: readShortList(image, CLASS_TABLE_ADDRESSES.rangeF),
+    rangeG: readShortList(image, CLASS_TABLE_ADDRESSES.rangeG),
+    rangeH: readShortList(image, CLASS_TABLE_ADDRESSES.rangeH),
+    rangeI: readShortList(image, CLASS_TABLE_ADDRESSES.rangeI),
+    rangeJ: readShortList(image, CLASS_TABLE_ADDRESSES.rangeJ),
+    rangeK: readShortList(image, CLASS_TABLE_ADDRESSES.rangeK),
+    rangeL: readShortList(image, CLASS_TABLE_ADDRESSES.rangeL),
+    rangeM: readShortList(image, CLASS_TABLE_ADDRESSES.rangeM),
+    rangeN: readShortList(image, CLASS_TABLE_ADDRESSES.rangeN),
+    rangeO: readShortList(image, CLASS_TABLE_ADDRESSES.rangeO),
+  };
+}
+
 export function extractNooricTables(bytes: Uint8Array): NooricTables {
   const image = parsePe(bytes);
   return {
@@ -221,6 +296,7 @@ export function extractNooricTables(bytes: Uint8Array): NooricTables {
       ALTERNATE_RECORD_COUNT,
     ),
     nooricWidths: readNooricWidths(image),
+    classes: readClassTables(image),
   };
 }
 

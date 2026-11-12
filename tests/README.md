@@ -17,6 +17,11 @@ middle, and last page instead of rasterizing every page during routine work.
 npm run test:references
 npm run audit:references
 npm run audit:references -- --strict
+npm run test:visual
+npm run visual:diff -- --case "A3 sample" --inpage-fonts fonts/inpage-local
+npm run test:vector
+npm run vector:diff -- --case "A3 sample" --inpage-fonts fonts/inpage-local
+npm run nooric:oracle -- --manifest tmp/oracle/manifest.json
 ```
 
 The focused test suite verifies the checked-in reference metadata and confirms
@@ -40,5 +45,6 @@ Normal audit mode exits successfully so known compatibility gaps can be
 measured during development. Strict mode exits non-zero unless page count and
 size match and every sampled non-blank page reaches 98% ink overlap.
 
-Poppler's `pdfinfo`, `pdftotext`, and `pdftoppm` commands must be available on
-`PATH` for the audit command. The fast Vitest suite does not depend on Poppler.
+Poppler's `pdfinfo`, `pdftotext`, `pdftoppm`, and `pdftocairo` commands must be
+available for the audit and visual/vector diff commands. The fast Vitest suite
+does not depend on Poppler.

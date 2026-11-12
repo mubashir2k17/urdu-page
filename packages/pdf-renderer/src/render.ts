@@ -78,12 +78,14 @@ export async function renderPdf(
   const shape = (text: string, direction: "ltr" | "rtl" = "rtl", style?: TextStyle,
     codes?: readonly (number | undefined)[], legacyRunKind?: number): ShapedRun => {
     const selectedFont = style ? typography?.resolveFont?.(style, direction, legacyRunKind) ?? shapeFont : shapeFont;
-    const cacheKey = `${selectedFont.id}:${direction}:${legacyRunKind ?? ""}:${codes ? JSON.stringify(codes) : "text"}:${text}`;
+    const styleBias = style?.bold ? 3 : 0;
+    const cacheKey = `${selectedFont.id}:${direction}:${legacyRunKind ?? ""}:${styleBias}:${codes ? JSON.stringify(codes) : "text"}:${text}`;
     const cached = shapedRuns.get(cacheKey);
     if (cached) return cached;
     const run = shaper.shape({
       text,
       ...(codes ? { codes } : {}),
+      styleBias,
       font: selectedFont,
       direction,
       language: direction === "rtl" ? "ur" : "en",

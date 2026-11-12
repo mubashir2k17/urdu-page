@@ -164,10 +164,39 @@ if (!record0 || !record3) {
   );
 }
 
+// --- Selector class tables -------------------------------------------------
+
+if (!tables.classes) {
+  console.log("info selector class tables missing from this table dump; re-run nooric:extract");
+} else {
+  check(
+    "selector byte tables are 256 entries",
+    [tables.classes.breakNext, tables.classes.joinCapable, tables.classes.nonJoining]
+      .every((table) => table.length === 256),
+  );
+  check("space terminates joining", tables.classes.breakNext[0x20] !== 0);
+  check("alef is a right-joining letter", tables.classes.nonJoining[0x81] !== 0);
+  check(
+    "transparent class contains zabar",
+    tables.classes.transparent.some((code) => (code & 0xff) === 0xab),
+  );
+  check(
+    "ligature pair classes are populated",
+    tables.classes.ligatureLeft.length > 0 && tables.classes.ligatureRight.length > 0,
+  );
+  console.log(
+    `info classes: ${tables.classes.transparent.length} transparent, ` +
+      `${tables.classes.ligatureLeft.length}/${tables.classes.ligatureRight.length} ligature pair`,
+  );
+}
+
 // --- Width table and glyph slot --------------------------------------------
 
 if (tables.nooricWidths.length === 0) {
-  console.log("info NOORIC width table is runtime-initialized in .data; not statically extracted");
+  console.log(
+    "info NOORIC advance rows are filled at runtime by FUN_00407e70 from GDI metrics; " +
+      "tools/inpage-fonts.ts derives the same rows from the NOORIC faces",
+  );
 } else {
   check(
     "NOORIC width table shape (3 x 256)",

@@ -34,9 +34,34 @@ export class LegacyArabicTextShaper implements TextShaper {
       const advance=this.spaceAdvance*run.unitsPerEm/1000;
       return {...run,glyphs:run.glyphs.map(glyph=>({...glyph,xAdvance:advance})),totalAdvance:advance*run.glyphs.length};
     }
-    const chars = [...input.text].flatMap(char=>
-      this.forms.has(char)?[char]:[...char.normalize("NFD")]);
-    if (!chars.length || chars.some(char => !this.forms.has(char))) return this.fallback.shape(input);
+    const scalars = [...input.text];
+    if (!scalars.length) return this.fallback.shape(input);
+    const mapped = scalars.map(char => this.isMappedScalar(char));
+    if (!mapped.some(Boolean)) return this.fallback.shape(input);
+    if (mapped.every(Boolean)) {
+      return this.shapeMapped(input, this.expand(input.text)) ?? this.fallback.shape(input);
+    }
+    return this.shapeMixed(input, scalars, mapped);
+  }
+
+  /**
+   * A scalar is native-shapeable when the root table has its contextual forms.
+   * A scalar that needs NFD expansion is accepted only when every decomposed
+   * part is mapped; otherwise the whole scalar goes to the fallback.
+   */
+  private isMappedScalar(char: string): boolean {
+    if (this.forms.has(char)) return true;
+    const expansion = [...char.normalize("NFD")];
+    return expansion.length > 0 && expansion.every(part => this.forms.has(part));
+  }
+
+  private expand(text: string): string[] {
+    return [...text].flatMap(char => this.forms.has(char) ? [char] : [...char.normalize("NFD")]);
+  }
+
+  /** Shape a fully mapped run, or return undefined when there is no base glyph. */
+  private shapeMapped(input: ShapeInput, chars: string[]): ShapedRun | undefined {
+    if (!chars.length || chars.some(char => !this.forms.has(char))) return undefined;
     const clusters: {glyph: ArabicFormGlyph; marks: ArabicFormGlyph[]; cluster: number}[] = [];
     const letters = chars.map((char,index) => ({char,index,form:this.forms.get(char)!})).filter(({form}) => !form.mark);
     const bases:typeof letters=[];
@@ -57,7 +82,7 @@ export class LegacyArabicTextShaper implements TextShaper {
       const marks = chars.slice(base.index + 1,end).map(char => this.forms.get(char)!).filter(form => form.mark).map(form => form.isolated);
       clusters.push({glyph,marks,cluster:base.index});
     }
-    if (!clusters.length) return this.fallback.shape(input);
+    if (!clusters.length) return undefined;
     // Native substitutions run in logical order after contextual forms. A
     // mark-only combination remains attached to its base without an advance.
     let sequence=clusters.flatMap(({glyph,marks,cluster})=>[
@@ -95,5 +120,60 @@ export class LegacyArabicTextShaper implements TextShaper {
     }
     return {logicalText:input.text,fontId:input.font.id,direction:input.direction,language:input.language,
       script:input.script,unitsPerEm:1000,glyphs,totalAdvance:glyphs.reduce((sum,glyph) => sum+glyph.xAdvance,0),missingGlyphCount:0};
+  }
+
+  /**
+   * Mixed fallback: keep native root glyphs for mapped scalars and use the
+   * fallback shaper only for the unmapped scalars between them. The native
+   * route previously gave up on the whole word when one diacritic was missing,
+   * which changed the face for entire Aasaar/Batool/Zohar runs.
+   */
+  private shapeMixed(input: ShapeInput, scalars: string[], mapped: boolean[]): ShapedRun {
+    const fallbackRun = this.fallback.shape(input);
+    const scale = fallbackRun.unitsPerEm > 0 ? 1000 / fallbackRun.unitsPerEm : 1;
+    const ranges: {start:number; end:number}[] = [];
+    for (let index = 0; index < mapped.length;) {
+      if (!mapped[index]) { index++; continue; }
+      const start = index;
+      while (index < mapped.length && mapped[index]) index++;
+      ranges.push({start, end:index});
+    }
+
+    // Shape each mapped range; a range with no base glyph keeps its fallback
+    // glyphs (for example a run containing only combining marks).
+    const replacements = new Map<number, ShapedGlyph[]>();
+    const failed = new Set<number>();
+    for (const [rangeIndex, range] of ranges.entries()) {
+      const text = scalars.slice(range.start, range.end).join("");
+      const segment = this.shapeMapped({...input, text}, this.expand(text));
+      if (!segment) { failed.add(rangeIndex); continue; }
+      replacements.set(rangeIndex, segment.glyphs.map(glyph => ({...glyph, cluster: glyph.cluster + range.start})));
+    }
+
+    const inRange = (cluster: number): boolean => ranges.some((range, index) =>
+      !failed.has(index) && cluster >= range.start && cluster < range.end);
+    const glyphs: ShapedGlyph[] = fallbackRun.glyphs
+      .filter(glyph => !inRange(glyph.cluster))
+      .map(glyph => ({
+        ...glyph,
+        fontId: glyph.fontId ?? fallbackRun.fontId,
+        xAdvance: glyph.xAdvance * scale,
+        yAdvance: glyph.yAdvance * scale,
+        xOffset: glyph.xOffset * scale,
+        yOffset: glyph.yOffset * scale,
+        ...(glyph.kashida ? {kashida:{...glyph.kashida,advance:glyph.kashida.advance * scale}} : {}),
+      }));
+    for (const replacement of replacements.values()) glyphs.push(...replacement);
+    glyphs.sort((left, right) => input.direction === "rtl"
+      ? right.cluster - left.cluster
+      : left.cluster - right.cluster);
+    return {
+      ...fallbackRun,
+      logicalText: input.text,
+      unitsPerEm: 1000,
+      glyphs,
+      totalAdvance: glyphs.reduce((sum, glyph) => sum + glyph.xAdvance, 0),
+      missingGlyphCount: glyphs.filter(glyph => glyph.id === 0).length,
+    };
   }
 }

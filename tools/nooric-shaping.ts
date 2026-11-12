@@ -1,7 +1,9 @@
 // Port of the native Noori selection core: joining-form computation, the
 // (code, form) record lookup (FUN_004125b0 / FUN_00415bf0), and the output
-// code-token encoding (FUN_00413060). Context-class matching and the ligature
-// post-pass are not ported yet; see docs/reverse-engineering/noori-shaping.md.
+// code-token encoding (FUN_00413060). The package shaper
+// (packages/text-shaper/src/nooric-shaper.ts) now also applies the class
+// tables, context lists, and the decoded range rewrite. See
+// docs/reverse-engineering/noori-shaping.md.
 
 import type { NooricRecord, NooricTable } from "./nooric-table.js";
 

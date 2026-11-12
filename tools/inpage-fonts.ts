@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import fontkit from "@pdf-lib/fontkit";
-import { decodeInPageFontData, readInPageBankMetrics, readInPageIsolatedGlyph, HarfBuzzTextShaper, LegacyLigatureTextShaper, NooricTextShaper, type LegacyLigatureGlyph, type NooricRecord, type ShapeFont, type TextShaper } from "@inpage/text-shaper";
+import { decodeInPageFontData, readInPageBankMetrics, readInPageIsolatedGlyph, HarfBuzzTextShaper, LegacyLigatureTextShaper, NooricTextShaper, type LegacyLigatureGlyph, type NooricClassTables, type NooricRecord, type ShapeFont, type TextShaper } from "@inpage/text-shaper";
 import type { RenderTypography } from "@inpage/pdf-renderer";
 import { CHAR_MAP_URDU } from "../packages/inp-parser/src/charmap.js";
 import { loadArabicFontFamilies } from "./inpage-arabic-fonts.js";
@@ -54,6 +54,7 @@ export function importInPageFonts(source: string, destination: string): void {
 
 interface ExtractedNooricTables {
   default:{records:(Omit<NooricRecord,"glyphSlot"> & {glyphSlot?:number;s06?:number})[]};
+  classes?:NooricClassTables;
 }
 
 function loadNooricTypography(directory:string,fallback:TextShaper):
@@ -65,7 +66,11 @@ function loadNooricTypography(directory:string,fallback:TextShaper):
   const records:NooricRecord[]=tables.default.records.map(record=>{
     const glyphSlot=record.glyphSlot ?? (record.s06 === undefined ? undefined : record.s06 & 0xff);
     if(glyphSlot===undefined)throw new Error("NOORIC record has no glyph slot");
-    return {code:record.code,form:record.form,variant:record.variant,glyphSlot};
+    return {code:record.code,form:record.form,variant:record.variant,glyphSlot,
+      ...(record.advance===undefined?{}:{advance:record.advance}),
+      ...(record.context===undefined?{}:{context:record.context}),
+      ...(record.type===undefined?{}:{type:record.type}),
+      ...(record.tail===undefined?{}:{tail:record.tail})};
   });
   const loaded=files.map((file,variant)=>{
     const bytes=readFileSync(join(directory,file));
@@ -75,25 +80,79 @@ function loadNooricTypography(directory:string,fallback:TextShaper):
   });
   // Record variants predominantly resolve only in their corresponding cmap:
   // variant 0 -> NOORIC, 1 -> NOORIC01, 2 -> NOORIC02.
+  const glyphFor=(faceIndex:number,slot:number)=>{
+    const face=loaded[faceIndex % loaded.length];
+    if(!face || !Number.isInteger(slot) || slot<0 || slot>0xff)return undefined;
+    const glyph=face.font.glyphForCodePoint(0xf000+slot);
+    if(!glyph.id)return undefined;
+    return {glyphId:glyph.id,advance:glyph.advanceWidth,unitsPerEm:face.font.unitsPerEm};
+  };
+  // Native FUN_00407e70 fills nine 256-slot rows from the active NOORIC
+  // groups; rows 0..2 are the regular faces, 3..5 the style-bias +3 faces.
+  // Only the three supplied regular files exist, so the bias groups reuse them.
+  const faceFontIds=Array.from({length:9},(_,faceIndex)=>loaded[faceIndex % loaded.length]!.face.id);
+  const advanceTable=Array.from({length:9},(_,faceIndex)=>{
+    const font=loaded[faceIndex % loaded.length]!.font;
+    const row=Array.from({length:256},(_,slot)=>font.glyphForCodePoint(0xf000+slot).advanceWidth ?? 0);
+    row[0]=font.unitsPerEm;
+    return row;
+  });
   const shaper=new NooricTextShaper({
     records,
     fontIds:loaded.map(({face})=>face.id),
+    faceFontIds,
     unitsPerEm:loaded[0]!.font.unitsPerEm,
     fallback,
-    resolver:{resolve(variant,slot) {
-      const face=loaded[variant];
-      if(!face || !Number.isInteger(slot) || slot<0 || slot>0xff)return undefined;
-      const glyph=face.font.glyphForCodePoint(0xf000+slot);
-      if(!glyph.id)return undefined;
-      return {glyphId:glyph.id,advance:glyph.advanceWidth,unitsPerEm:face.font.unitsPerEm};
-    }},
+    ...(tables.classes?{classes:tables.classes}:{}),
+    advanceTable,
+    resolver:{
+      resolve:glyphFor,
+      resolveFace:glyphFor,
+    },
   });
   return {shaper,faces:loaded.map(({face})=>face),fontIds:loaded.map(({face})=>face.id)};
 }
 
 export interface InPageTypographyOptions {
-  /** Experimental NOORIC record shaping; disabled while context/ligature recovery is incomplete. */
+  /** Native NOORIC record shaping. Opt-in until the oracle corpus clears the measured regression. */
   nooric?: boolean;
+}
+
+type LatinVariant = "" | " Bold" | " Italic" | " Bold Italic";
+
+function hostFontDirectory(): string | undefined {
+  const root = process.env.WINDIR ?? process.env.SystemRoot;
+  return root ? join(root, "Fonts") : undefined;
+}
+
+/** Prefer the imported profile, then the host's installed fonts. */
+function resolveFontFile(directory: string, candidates: readonly string[]): string | undefined {
+  const host = hostFontDirectory();
+  for (const candidate of candidates) {
+    for (const root of [directory, host]) {
+      if (!root) continue;
+      const path = join(root, candidate);
+      if (existsSync(path)) return path;
+    }
+  }
+  return undefined;
+}
+
+function normalizeLatinFamily(name: string | undefined): string {
+  const key = (name ?? "").toLowerCase().replace(/[^a-z]/g, "");
+  return ({
+    arial: "arial",
+    helvetica: "arial",
+    arialnarrow: "arialnarrow",
+    helveticanarrow: "arialnarrow",
+    bookantiqua: "bookantiqua",
+    arialunicode: "arialunicode",
+    timesnewroman: "timesnewroman",
+    times: "timesnewroman",
+    couriernew: "couriernew",
+    courier: "couriernew",
+    arialblack: "arialblack",
+  })[key] ?? key;
 }
 
 /** Complete-word mappings with verified advancing/overlay component structure. */
@@ -168,34 +227,89 @@ export function loadInPageTypography(directory:string,options:InPageTypographyOp
   }
   const usedFonts = new Set(entries.flatMap(({ fontId, overlay }) => overlay ? [fontId, overlay.fontId] : [fontId]));
   console.log(`Enabled ${entries.length} word mappings (${entries.filter(({ overlay }) => overlay).length} overlays) across ${usedFonts.size} Noori banks`);
-  const latin = new Map<string, RenderTypography["fonts"][number]>();
+  const latinFamilies = new Map<string, Map<LatinVariant, ShapeFont>>();
+  const latinFonts: ShapeFont[] = [];
   const cellScales = new Map<string,number>();
-  for (const variant of ["", " Bold", " Italic", " Bold Italic"]) {
-    const file = join(directory, `Arial${variant}.ttf`);
-    if (!existsSync(file)) continue;
-    const font = {id: `local-arial${variant.replaceAll(" ", "-").toLowerCase()}`, bytes: readFileSync(file)};
-    latin.set(variant, font);
-    const metrics=fontkit.create(font.bytes);
-    if ("glyphForCodePoint" in metrics) cellScales.set(font.id,metrics.unitsPerEm/(metrics.ascent-metrics.descent));
-  }
+  const loadLatinFamily = (key: string, files: Record<LatinVariant, readonly string[]>): void => {
+    const loaded = new Map<LatinVariant, ShapeFont>();
+    for (const variant of ["" , " Bold", " Italic", " Bold Italic"] as const) {
+      const file = resolveFontFile(directory, files[variant]);
+      if (!file) continue;
+      const id = `host-${key}${variant.replaceAll(" ", "-").toLowerCase()}`;
+      const font = {id, bytes: readFileSync(file)};
+      loaded.set(variant, font);
+      latinFonts.push(font);
+      const metrics=fontkit.create(font.bytes);
+      if ("glyphForCodePoint" in metrics) cellScales.set(id,metrics.unitsPerEm/(metrics.ascent-metrics.descent));
+    }
+    if (loaded.size > 0) latinFamilies.set(key, loaded);
+  };
+  loadLatinFamily("arial", {
+    "": ["Arial.ttf", "arial.ttf"],
+    " Bold": ["Arial Bold.ttf", "arialbd.ttf"],
+    " Italic": ["Arial Italic.ttf", "ariali.ttf"],
+    " Bold Italic": ["Arial Bold Italic.ttf", "arialbi.ttf"],
+  });
+  loadLatinFamily("arialnarrow", {
+    "": ["Arial Narrow.ttf", "ARIALN.TTF", "arialn.ttf"],
+    " Bold": ["Arial Narrow Bold.ttf", "ARIALNB.TTF", "arialnb.ttf"],
+    " Italic": ["Arial Narrow Italic.ttf", "ARIALNI.TTF", "arialni.ttf"],
+    " Bold Italic": ["Arial Narrow Bold Italic.ttf", "ARIALNBI.TTF", "arialnbi.ttf"],
+  });
+  loadLatinFamily("bookantiqua", {
+    "": ["Book Antiqua.ttf", "BKANT.TTF", "bkant.ttf"],
+    " Bold": ["Book Antiqua Bold.ttf", "BKANTBD.TTF", "bkantbd.ttf"],
+    " Italic": ["Book Antiqua Italic.ttf", "BKANTI.TTF", "bkanti.ttf"],
+    " Bold Italic": ["Book Antiqua Bold Italic.ttf", "BKANTBI.TTF", "bkantbi.ttf"],
+  });
+  loadLatinFamily("arialunicode", {
+    "": ["Arial Unicode.ttf", "ARIALUNI.TTF", "arialuni.ttf"],
+    " Bold": [], " Italic": [], " Bold Italic": [],
+  });
+  loadLatinFamily("timesnewroman", {
+    "": ["Times New Roman.ttf", "times.ttf", "timesnew.ttf"],
+    " Bold": ["Times New Roman Bold.ttf", "timesbd.ttf"],
+    " Italic": ["Times New Roman Italic.ttf", "timesi.ttf"],
+    " Bold Italic": ["Times New Roman Bold Italic.ttf", "timesbi.ttf"],
+  });
+  loadLatinFamily("couriernew", {
+    "": ["Courier New.ttf", "cour.ttf"],
+    " Bold": ["Courier New Bold.ttf", "courbd.ttf"],
+    " Italic": ["Courier New Italic.ttf", "couri.ttf"],
+    " Bold Italic": ["Courier New Bold Italic.ttf", "courbi.ttf"],
+  });
+  loadLatinFamily("arialblack", {
+    "": ["Arial Black.ttf", "ariblk.ttf"], " Bold": [], " Italic": [], " Bold Italic": [],
+  });
   const arabic = loadArabicFontFamilies(directory,data);
-  const wineSymbol=existsSync(join(directory,"WineSymbol.ttf"));
-  const symbolPath=join(directory,wineSymbol?"WineSymbol.ttf":"Symbol.ttf");
-  const symbol=existsSync(symbolPath)?{id:"local-symbol",bytes:readFileSync(symbolPath)}:undefined;
+  const symbolFile = resolveFontFile(directory, [
+    "WineSymbol.ttf",
+    "seguisym.ttf",
+    "segoeuisl.ttf",
+    "Symbol.ttf",
+    "symbol.ttf",
+  ]);
+  const wineSymbol = symbolFile?.toLowerCase().endsWith("winesymbol.ttf") ?? false;
+  const symbol = symbolFile ? {id:"local-symbol",bytes:readFileSync(symbolFile)} : undefined;
   if(symbol){const metrics=fontkit.create(symbol.bytes);if("glyphForCodePoint" in metrics)cellScales.set(symbol.id,metrics.unitsPerEm/(metrics.ascent-metrics.descent));}
   const noori = new LegacyLigatureTextShaper(entries,true);
   const unicodeShaper=new HarfBuzzTextShaper();
   const pashtoFallbackFont=arabic.names.get("Trad Arabic");
   const pashtoFallbackShaper=pashtoFallbackFont?arabic.shapers.get(pashtoFallbackFont.id):undefined;
-  const nooric=options.nooric && pashtoFallbackFont && pashtoFallbackShaper
+  const enableNooric=options.nooric === true;
+  const nooric=enableNooric && pashtoFallbackFont && pashtoFallbackShaper
     ? loadNooricTypography(directory,{shape(input) {
       return pashtoFallbackShaper.shape({...input,font:pashtoFallbackFont});
     }}) : undefined;
+  // FUN_0040a2a0 dispatches these four cached run kinds to FUN_00413c50, but
+  // only the Noori Character (Trad Arabic / 0x7f8b) sequences select the
+  // 44-byte NOORIC records. Other faces reach their own bank records.
+  const nooricRunKinds=new Set([0x7f8b,0x7f89,0x7f8c]);
   return {
     // Reproduce the 600 dpi Windows print placement used by the legacy profile.
     glyphPositionDpi:600,
     shaper: {shape(input) {
-      if(nooric && input.font.id===nooric.fontIds[0])return nooric.shaper.shape(input);
+      if(nooric && input.font.id===nooric.faces[0]?.id)return nooric.shaper.shape(input);
       if(wineSymbol && input.font.id===symbol?.id) {
         const run=unicodeShaper.shape({...input,text:input.text.replaceAll("←","\uf0ac")});
         return {...run,logicalText:input.text,fontSizeScale:cellScales.get(input.font.id) ?? 1};
@@ -204,16 +318,20 @@ export function loadInPageTypography(directory:string,options:InPageTypographyOp
       const fontSizeScale=cellScales.get(input.font.id);
       return fontSizeScale ? {...run,fontSizeScale} : run;
     }},
-    fonts: [...fonts.filter(({ id }) => usedFonts.has(id)), ...latin.values(), ...arabic.fonts,
+    fonts: [...fonts.filter(({ id }) => usedFonts.has(id)), ...latinFonts, ...arabic.fonts,
       ...(nooric?.faces ?? []),...(symbol?[symbol]:[])],
     resolveFont(style,direction,legacyRunKind) {
       if(direction==="ltr" && style.latinFontName==="Symbol")return symbol;
-      // Only cached Pashto's native Noori Character route is known to use these
-      // records. Trad Arabic by itself, and bold style-biased runs, keep fallback.
-      if(nooric && direction==="rtl" && legacyRunKind===0x7f8b && style.arabicFontName==="Trad Arabic")return nooric.faces[0];
+      // The native contextual route (FUN_00413c50) is shared by these kinds;
+      // NooricTextShaper falls back to the style face per unresolved segment.
+      if(nooric && direction==="rtl" && nooricRunKinds.has(legacyRunKind ?? -1) &&
+         style.arabicFontName==="Trad Arabic")return nooric.faces[0];
       if (direction === "rtl" && style.arabicFontName) return arabic.names.get(style.arabicFontName);
-      if (direction !== "ltr" || style.latinFontName !== "Arial") return undefined;
-      return latin.get(`${style.bold ? " Bold" : ""}${style.italic ? " Italic" : ""}`);
+      if (direction !== "ltr") return undefined;
+      const family = latinFamilies.get(normalizeLatinFamily(style.latinFontName));
+      if (!family) return undefined;
+      const variant: LatinVariant = `${style.bold ? " Bold" : ""}${style.italic ? " Italic" : ""}`;
+      return family.get(variant) ?? family.get("");
     },
   };
 }

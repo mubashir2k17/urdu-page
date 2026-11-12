@@ -19,9 +19,12 @@
     "fonts:preview": "vite-node --config vitest.config.ts tools/preview-inpage-fonts.ts",
     "nooric:extract": "vite-node --config vitest.config.ts tools/extract-nooric-table.ts",
     "nooric:validate": "vite-node --config vitest.config.ts tools/validate-nooric-shaping.ts",
+    "nooric:oracle": "vite-node --config vitest.config.ts tools/run-nooric-oracle.ts",
     "visual:diff": "vite-node --config vitest.config.ts tools/run-visual-diff.ts",
+    "vector:diff": "vite-node --config vitest.config.ts tools/run-vector-diff.ts",
     "dump:objects": "vite-node --config vitest.config.ts tools/dump-inp-objects.ts",
     "test:visual": "set \"VISUAL_FIDELITY=1\"&& vitest run tests/visual-fidelity.test.ts",
+    "test:vector": "set \"VECTOR_FIDELITY=1\"&& vitest run tests/vector-fidelity.test.ts",
     "test:watch": "vitest",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "lint": "eslint \"packages/*/src/**/*.ts\""

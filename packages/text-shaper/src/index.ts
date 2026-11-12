@@ -22,6 +22,8 @@ export interface ShapeInput {
   text: string;
   /** Legacy codes aligned with text's Unicode scalars; gaps use the fallback shaper. */
   codes?: readonly (number | undefined)[];
+  /** Native weight/face bias (0 regular, 3 for the first bold step). */
+  styleBias?: number;
   font: ShapeFont;
   direction: TextDirection;
   language: string;
@@ -51,6 +53,7 @@ export type { ArabicGlyphSubstitution, ArabicLetterForms } from "./legacy-arabic
 export { NooricTextShaper } from "./nooric-shaper.js";
 export type {
   NooricRecord,
+  NooricClassTables,
   NooricGlyphResolver,
   ResolvedGlyph,
   NooricTextShaperOptions,

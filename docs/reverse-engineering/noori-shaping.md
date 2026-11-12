@@ -79,6 +79,32 @@ Confirmed context lists (shorts until `0x80`):
 - record 1 (`0x81`, form 1) → `[0x9e]`
 - record 6 (`0x82`, form 2) → `[0xb9, 0xa6]`
 
+### Selector class tables (confirmed, extracted)
+
+`tools/extract-nooric-table.ts` now writes these alongside the records:
+
+| VA | Shape | Meaning |
+|---|---|---|
+| `0x4e70b8` | 256 bytes | non-zero next code terminates the joining run (`0x20`, `0xb5`, `0xd0`) |
+| `0x4e71b8` | 256 bytes | codes that participate in joining (letters, ASCII punctuation, `0x46`) |
+| `0x4e72b8` | 256 bytes | right-joining letters that do not connect forward (`0x81`, `0x8b`–`0x91`, …) |
+| `0x4e78bc` | shorts | transparent marks skipped by `FUN_00412660`/`FUN_004126a0` |
+| `0x4e775c` / `0x4e7584` | shorts | left/right side of the ligature pair test in `FUN_00413060` |
+| `0x4e7644`, `0x4e73b8`, `0x4e745c`, `0x4e74ac`–`0x4e74f8`, `0x4e7534`, `0x4e7608`, `0x4e7828`, `0x4e7880`–`0x4e7908` | shorts | range-rewrite target lists used by `FUN_004127c0`/`FUN_00412eb0` |
+
+`FUN_0040eb70(code, list)` compares only the low byte of each short. A context
+list is a filter: a candidate record with a non-null `+0x10` pointer is accepted
+only when the previous (final form) or next (other forms) significant code
+appears in the list; an exhausted list advances to the next record.
+
+### Form computation (confirmed)
+
+The selector tracks `notJoinPrev` (the previous iteration's `notJoinNext`) and
+computes `notJoinNext` from the class tables plus the same `FUN_00412fd0` word
+boundary test. The emitted form is `(notJoinPrev, notJoinNext)` → isolated /
+initial / final / medial. `NooricTextShaper` ports this directly; the old
+forms-per-code heuristic remains only when no class tables are supplied.
+
 The emitter `FUN_00414b90` copies the 44-byte record, and if the following form
 is not `4` increments the output position; it also consults the substitution
 table at `DAT_004fef92` (five-word rows) to rewrite a following glyph.
@@ -151,6 +177,23 @@ joining forms.
 
 ## Advances, spaces, kashida, marks (`FUN_0040a2a0`)
 
+### NOORIC advance table (confirmed)
+
+`(&DAT_0064ab3c)[3]` is zero in the file because `FUN_0040ed20` points it at
+`&DAT_00631e78`, and `FUN_00407e70` fills that buffer at startup:
+
+1. Create the NOORIC face at the font's em height (`lfHeight = -em`).
+2. `GetCharWidthA(0, 0xff)` → 256 device widths per face.
+3. Write `row[0] = em` and `row[1] = tmAveCharWidth`; zero the slots listed in
+   the caller's exclusion table.
+4. Repeat for three face groups at `0x600`-byte strides
+   (`NOORIC`, `LAHORI`, `Noori Character`); the resulting block is nine
+   256-slot rows.
+
+Slots with a zero width fall back to the resolver metric. This is the
+deterministic equivalent of the GDI measurement; the oracle harness validates
+it against real exports.
+
 - Space width: if `DAT_0064a0a8 == 0`, ordinary space = `0x96` (150/1000 em);
   otherwise first/repeat space values from `DAT_00649830` (matches prior notes).
 - `FUN_0040a150(codeArray, count, weightTable, out)` distributes kashida counts
@@ -161,6 +204,30 @@ joining forms.
   forms other than `4` increment the output slot; form `4` carries no advance.
 - Marks are accumulated separately (`DAT_00651900` glyph count,
   `_DAT_00651902` mark count) and emitted via `FUN_00414b90`.
+
+### Oracle corpus workflow
+
+The vendor application is a manual dev-only input (Wine or a Windows install).
+For each controlled document:
+
+1. Export to PDF from InPage, then rasterise one page:
+   `pdftoppm -f 1 -l 1 -r 1200 -gray oracle.pdf oracle`.
+2. Describe the raster in a manifest:
+   ```json
+   {
+     "samples": [
+       { "name": "beh-isolated", "image": "tmp/oracle/beh-isolated.pgm",
+         "expectedGlyphs": 1, "threshold": 32, "minGap": 1,
+         "yMin": 0, "yMax": 600 }
+     ]
+   }
+   ```
+3. `npm run nooric:oracle -- --manifest tmp/oracle/manifest.json`.
+4. Compare the measured widths/advances with the font-derived rows and record
+   any systematic delta here before changing a constant.
+
+The runner only measures rasters; it does not launch the executable.
+
 
 ## Reproduction (no binary committed)
 
@@ -177,28 +244,35 @@ were produced by it.
 
 ## Implementation implications
 
-- The converter currently approximates Noori with whole-word DAT mappings
-  (`LegacyLigatureTextShaper`) plus saved-width fitting. The native path is
-  **character-level contextual selection over these 44-byte records**, then a
-  ligature post-pass.
-- To reproduce it faithfully we need, per active font family, the record table
-  (default/alternate) as a generated data module, plus the class tables and the
-  three context-search helpers.
-- Validate against known-good targets from prior research (e.g. NOORIN16 glyph
-  id 97 for `میں`) before switching rendering over.
+- `NooricTextShaper` is now the character-level contextual selector over the
+  44-byte records: class-based forms, context lists, type filter, face bias,
+  advance rows, and the decoded `FUN_00412eb0` range rewrite.
+- The class tables are extracted by `tools/extract-nooric-table.ts` and checked
+  by `tools/validate-nooric-shaping.ts`; no vendor data is committed.
+- The NOORIC advance rows are derived from the supplied faces exactly as
+  `FUN_00407e70` measures them, and `tools/run-nooric-oracle.ts` measures real
+  exports to validate them.
+- `tools/vector-diff.ts` compares Poppler SVG outlines per page so per-glyph
+  drift is visible before it moves the 36-dpi raster score.
+- The 44-byte records are the Noori Character route. `0x7f85` Noori Nastaliq
+  text uses DAT root records and NOORIN banks; sending it through NOORIC faces
+  is measurably wrong (55.04% on SAMPLE2) and is not the next step here.
 - Keep `ActualText` logical Unicode unchanged; the record boundary is a shaping
   detail, not text content.
 
 ## Open questions (next pass)
 
 1. Fields `0x08`, `0x0a`, and `0x16`–`0x2a` (extra glyph/mark metrics) — resolve
-   against a known reference word.
+   against a known reference word. Mark assembly currently uses zero-advance
+   form-4 pieces plus the injected metrics.
 2. The three table pointers in `PTR_DAT_004fef84..8c`: which font families map
    to which table (default Noori vs Aasaar/Trad Arabic).
-3. `FUN_00412660/004126a0/004126f0/004127c0/00412eb0` exact semantics
-   (previous/next context match, ligature range rewrite).
-4. Class tables `DAT_004e70b8/004e71b8/004e72b8/004e73b8/004e7584/004e775c/
-   004e78bc` contents (bit meanings).
-5. NOORIC advance-width table: `(&DAT_0064ab3c)[3]` is zero in the file and
-   filled at runtime (uninitialized `.data`); recover by tracing the init write
-   or approximate with font metrics.
+3. `FUN_004127c0` branches not exercised by `FUN_00412eb0`: the class-scan
+   boundary cases and form-1 adjacent rewrites. The decoded target-list mapping
+   is ported; the remaining branches need the mark metrics from (1).
+4. Root-record character shaping for `0x7f85` Noori Nastaliq and the other
+   non-Noori-character cached kinds (DAT `+4`/`+6`/`+8`/`+12`/`+16` forms and
+   the runtime face at raw code `0xe4`). This is the largest remaining raster
+   gap on SAMPLE2.
+5. Oracle corpus: run controlled single-property documents under Wine and use
+   the measurements to confirm the font-derived advance rows and mark offsets.

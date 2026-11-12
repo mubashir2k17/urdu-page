@@ -47,4 +47,28 @@ describe("Arabic symbol ligatures",()=>{
     expect(run.glyphs.map(glyph=>[glyph.id,glyph.cluster,glyph.xAdvance])).toEqual([[10,1,0],[11,1,500],[2,0,500]]);
     expect(shaper.shape({...input,text:"لا"}).glyphs[0]!.id).toBe(9);
   });
+
+  it("keeps native glyphs and only falls back for unmapped scalars",()=>{
+    const glyph=(id:number,advance=500)=>({id,fontId:"arabic",advance});
+    const forms=new Map<string,ArabicLetterForms>([
+      ["ب",{isolated:glyph(1),final:glyph(3),initial:glyph(4)}],
+      ["َ",{isolated:glyph(2,0),mark:true}],
+    ]);
+    const fallback:TextShaper={shape(input){
+      return {logicalText:input.text,fontId:"fallback",direction:input.direction,language:input.language,
+        script:input.script,unitsPerEm:1000,missingGlyphCount:0,
+        glyphs:[...input.text].map((_,cluster)=>({id:100+cluster,fontId:"fallback",cluster,xAdvance:100,yAdvance:0,xOffset:0,yOffset:0})),
+        totalAdvance:[...input.text].length*100};
+    }};
+    const shaper=new LegacyArabicTextShaper(forms,fallback);
+    const input:ShapeInput={text:"بxب",font:{id:"arabic",bytes:new Uint8Array()},direction:"rtl",language:"ar",script:"arab"};
+    const run=shaper.shape(input);
+    expect(run.glyphs.map(glyph=>[glyph.id,glyph.fontId,glyph.cluster])).toEqual([
+      [1,"arabic",2],
+      [101,"fallback",1],
+      [1,"arabic",0],
+    ]);
+    expect(run.totalAdvance).toBe(1100);
+    expect(run.logicalText).toBe("بxب");
+  });
 });
