@@ -1,16 +1,20 @@
 import type { PageObject, Story, TextStyle } from "@inpage/document-model";
 import type { ShapedGlyph, ShapedRun } from "@inpage/text-shaper";
 import type { PdfBackend } from "./backend.js";
+import { resolveSpacingCalibration } from "./spacing-calibration.js";
+import type { ResolvedSpacingCalibration, SpacingOptions } from "./spacing-calibration.js";
 
 type Direction = "ltr" | "rtl";
 type Shape = (text: string, direction: Direction, style?: TextStyle,
   codes?: readonly (number | undefined)[], legacyRunKind?: number) => ShapedRun;
 interface Token {text: string; style: TextStyle; run: ShapedRun; width: number; direction: Direction;
   pieces: {run:ShapedRun;style:TextStyle}[]}
+type Piece = Token["pieces"][number];
 
 /** Lay out source-sized runs; unavailable styles retain the existing fallback shaper. */
 export function drawStyledStory(story: Story, object: PageObject, backend: PdfBackend, shape: Shape, pageHeight: number,
-  saved?:{baseline:number;characterSpacing?:number;extraSpace?:number;kashidaCount?:number}): void {
+  saved?:{baseline:number;characterSpacing?:number;extraSpace?:number;kashidaCount?:number},
+  spacing: SpacingOptions = {}): void {
   if(story.cachedLayout && story.cachedLayout.frameId===object.id && !saved) {
     const cache=story.cachedLayout;
     const insetX=cache.columns===1?Math.max(0,(object.bounds.widthPoints-cache.columnWidth)/2):0;
@@ -38,13 +42,26 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
         if (!run.baseline && (fontName === "Trad Arabic" || fontName === "Trad Arabic Bold") && Math.abs(line.baseline - fontSize * 0.975) < 0.05) {
           baseline += fontSize * (1.080458 - 0.975);
         }
-        drawStyledStory(group,frame,backend,shape,pageHeight,{baseline,characterSpacing:run.characterSpacing ?? 0,extraSpace:run.extraSpace ?? 0,kashidaCount:run.kashidaCount ?? 0});
+        drawStyledStory(group,frame,backend,shape,pageHeight,{baseline,
+          ...(run.characterSpacing===undefined?{}:{characterSpacing:run.characterSpacing}),
+          ...(run.extraSpace===undefined?{}:{extraSpace:run.extraSpace}),
+          ...(run.kashidaCount===undefined?{}:{kashidaCount:run.kashidaCount}),},spacing);
       }
       top+=line.height;
     }
     return;
   }
-  const hasSavedSpacing=!!(saved && (saved.characterSpacing || saved.extraSpace));
+  const priors=spacing.priors;
+  const hasPriorSpacing=!!(priors && (priors.characterSpacing || priors.wordSpacing));
+  const hasSavedSpacing=!!(saved && (saved.characterSpacing || saved.extraSpace))
+    || (!!saved && hasPriorSpacing);
+  const calibrationCache=new Map<string,ResolvedSpacingCalibration>();
+  const calibrationFor=(fontId:string|undefined):ResolvedSpacingCalibration=>{
+    const key=fontId ?? "";
+    let resolved=calibrationCache.get(key);
+    if(!resolved){resolved=resolveSpacingCalibration(spacing.calibration,fontId);calibrationCache.set(key,resolved);}
+    return resolved;
+  };
   const {xPoints:x, yPoints:top, widthPoints:width, heightPoints:height} = object.bounds;
   const columns = object.columnCount ?? 1;
   const gap = columns > 1 ? 9 : 0;
@@ -100,6 +117,9 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
     }
     const baseDirection: Direction = paragraph.runs.some(run => /[\u0600-\u06ff]/.test(run.text)) ? "rtl" : "ltr";
     const preserveLeadingSpaces=hasSavedSpacing || !!saved?.kashidaCount || !!saved;
+    // Trailing glue is retained only when the source saved spacing, matching
+    // the native extent: otherwise word processors drop it and including it
+    // would move interior words.
     const preserveTrailingSpaces=hasSavedSpacing || !!saved?.kashidaCount;
     const tokens: Token[] = [];
     const sources: {text:string;style:TextStyle;scalarStyles:TextStyle[];
@@ -125,20 +145,32 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
       const shared = source.legacyRunKind === 0x7f8b && !candidate?.legacyCodeShaped ? undefined : candidate;
       let scalarOffset = 0;
       for (const text of source.text.match(/\s+|[^\s]+/g) ?? []) {
-        const direction: Direction = /[\u0600-\u06ff]/.test(text) ? "rtl" : "ltr";
+        // Glue follows the run's direction/font (Arabic spaces in the Arabic
+        // face) instead of being forced through the LTR fallback.
+        const direction: Direction = /^\s+$/.test(text)
+          ? baseDirection : /[\u0600-\u06ff]/.test(text) ? "rtl" : "ltr";
         const end = scalarOffset + [...text].length;
         const codes = source.charCodes?.slice(scalarOffset,end);
         const glyphs = shared?.glyphs.filter(glyph => glyph.cluster >= scalarOffset && glyph.cluster < end)
           .map(glyph => ({...glyph,cluster:glyph.cluster-scalarOffset}));
-        const run = shared && glyphs ? {...shared, logicalText:text,glyphs,
+        const glueToken=/^\s+$/.test(text);
+        let run = shared && glyphs ? {...shared, logicalText:text,glyphs,
           totalAdvance:glyphs.reduce((sum,glyph) => sum+glyph.xAdvance,0)}
           : shape(text,direction,style,codes,source.legacyRunKind);
+        if(glueToken) {
+          // Oracle-measured correction to the font's natural space advance.
+          const spaceScale=calibrationFor(run.fontId).spaceScale;
+          if(spaceScale!==1) run={...run,glyphs:run.glyphs.map(glyph=>({...glyph,xAdvance:glyph.xAdvance*spaceScale})),
+            totalAdvance:run.totalAdvance*spaceScale};
+        }
         const pieces: Token["pieces"] = [];
         for (const originalGlyph of run.glyphs) {
           const glyph = {...originalGlyph};
           const glyphStyle = source.scalarStyles[scalarOffset + glyph.cluster] ?? style;
           if (glyph.xAdvance && /\S/.test(text)) {
-            glyph.xAdvance += ((glyphStyle.trackingEm ?? 0) + (glyphStyle.trackingPoints ?? 0) / style.fontSize) * run.unitsPerEm;
+            const trackingScale=calibrationFor(glyph.fontId ?? run.fontId).trackingScale;
+            glyph.xAdvance += ((glyphStyle.trackingEm ?? 0) + (glyphStyle.trackingPoints ?? 0) / style.fontSize)
+              * run.unitsPerEm * trackingScale;
           }
           let piece = pieces.at(-1);
           if (!piece || piece.style.baselineShift !== glyphStyle.baselineShift) {
@@ -167,8 +199,9 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
           piece.run={...piece.run,glyphs:piece.run.glyphs.flatMap(glyph=>{
             const extension=glyph.kashida,count=counts.get(glyph) ?? 0;
             if(!extension || !count)return [glyph];
+            const kashidaUnit=calibrationFor(extension.fontId).kashidaUnit;
             return [glyph,...Array.from({length:count},():ShapedGlyph=>({id:extension.id,fontId:extension.fontId,cluster:glyph.cluster,
-              xAdvance:extension.advance,yAdvance:0,xOffset:0,yOffset:0}))];
+              xAdvance:extension.advance*kashidaUnit,yAdvance:0,xOffset:0,yOffset:0}))];
           })};
           piece.run.totalAdvance=piece.run.glyphs.reduce((sum,glyph)=>sum+glyph.xAdvance,0);
         }
@@ -197,11 +230,12 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
       const alignedColumn = baseDirection === "rtl" ? columns - 1 - column : column;
       let contentWidth = items.reduce((sum,item) => sum + item.width,0);
       if(saved && contentWidth>0 && columnWidth>0) {
-        // Saved runs supply their measured endpoints. Preserve outlines and fit
-        // glyph advances to that source extent while native per-glyph metrics evolve.
-        // These source adjustments precede fitting to the saved endpoint.
+        // Saved runs supply their measured endpoint. Apply the decoded
+        // character/word spacing first, then give the residual to stretch zones
+        // in priority order — word spaces, kashida carriers, inter-glyph
+        // tracking — rather than scaling every glyph advance uniformly.
         if(hasSavedSpacing) {
-          let lastPiece: any = null;
+          let lastPiece: Piece | null = null;
           let lastGlyphIdx = -1;
           for(const item of items) {
             for(const piece of item.pieces) {
@@ -212,11 +246,11 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
             }
           }
           for(const item of items) {
-            const isSpace = /^\s+$/.test(item.text);
+            const isSpace = isGlue(item);
             for(const piece of item.pieces) {
               const scale=piece.style.fontSize*(piece.run.fontSizeScale ?? 1)*(piece.style.horizontalScale ?? 1)/piece.run.unitsPerEm;
-              const charSpacing = (saved.characterSpacing ?? 0) / scale;
-              const extraSpace = (isSpace ? (saved.extraSpace ?? 0) : 0) / scale;
+              const charSpacing = (saved.characterSpacing ?? priors?.characterSpacing ?? 0) / scale;
+              const extraSpace = (isSpace ? (saved.extraSpace ?? priors?.wordSpacing ?? 0) : 0) / scale;
               const isLastPiece = (piece === lastPiece);
               piece.run={
                 ...piece.run,
@@ -228,51 +262,31 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
               };
               piece.run.totalAdvance=piece.run.glyphs.reduce((sum,g)=>sum+g.xAdvance,0);
             }
-            item.width=item.pieces.reduce((sum,piece)=>sum+backend.measureShapedRun(piece.run,piece.style.fontSize)*(piece.style.horizontalScale ?? 1),0);
+            recomputeItemWidth(item,backend);
           }
         }
         contentWidth=items.reduce((sum,item)=>sum+item.width,0);
-        const ratio=columnWidth/contentWidth;
-        const wordSpaces=items.filter(item=>/^\s+$/.test(item.text));
+        const residual=columnWidth-contentWidth;
+        const wordSpaces=items.filter(isGlue);
         const spaceWidth=wordSpaces.reduce((sum,item)=>sum+item.width,0);
-        const fitSpaces=(baseDirection==="rtl" ? items.every(item=>!!item.style.arabicFontName) : false) &&
-          wordSpaces.length>0 && spaceWidth+columnWidth-contentWidth>=-0.001;
-        // A standalone symbol's saved extent is its font cell measurement;
-        // fit the symbol itself when the host provides a metrically different face.
-        const fitSymbol=items.length===1 && items[0]!.style.latinFontName==="Symbol" &&
-          items[0]!.pieces.reduce((sum,piece)=>sum+piece.run.glyphs.length,0)===1;
-        const totalGlyphs=items.reduce((sum,item)=>sum+item.pieces.reduce((pSum,p)=>pSum+p.run.glyphs.length,0),0);
-        const fitGaps=hasSavedSpacing && !fitSpaces && wordSpaces.length===0 && totalGlyphs>1;
-        const gapAdjustment=fitGaps?(columnWidth-contentWidth)/(totalGlyphs-1):0;
-        for(const item of items) {
-          if(fitSpaces && spaceWidth===0 && /^\s+$/.test(item.text)) {
-            const width=Math.max(0,columnWidth-contentWidth)/wordSpaces.length;
-            item.width=width;
-            const piece=item.pieces.at(-1);
-            if(!piece)continue;
-            const advance=width/(piece.style.fontSize*(piece.run.fontSizeScale ?? 1)*(piece.style.horizontalScale ?? 1))*piece.run.unitsPerEm;
-            piece.run={...piece.run,totalAdvance:advance,glyphs:piece.run.glyphs.map((glyph,index)=>({...glyph,xAdvance:index===piece.run.glyphs.length-1?advance:0}))};
-            continue;
-          }
-          if(fitGaps) {
-            for(const piece of item.pieces) {
-              const scale=piece.style.fontSize*(piece.run.fontSizeScale ?? 1)*(piece.style.horizontalScale ?? 1)/piece.run.unitsPerEm;
-              const adj=gapAdjustment/scale;
-              piece.run={
-                ...piece.run,
-                glyphs:piece.run.glyphs.map((glyph,index)=>index===piece.run.glyphs.length-1?glyph:{...glyph,xAdvance:glyph.xAdvance+adj}),
-              };
-              piece.run.totalAdvance=piece.run.glyphs.reduce((sum,g)=>sum+g.xAdvance,0);
-            }
-            item.width=item.pieces.reduce((sum,piece)=>sum+backend.measureShapedRun(piece.run,piece.style.fontSize)*(piece.style.horizontalScale ?? 1),0);
-            continue;
-          }
-          const itemRatio=fitSpaces ? (/^\s+$/.test(item.text)?(spaceWidth+columnWidth-contentWidth)/spaceWidth:1) : ratio;
-          item.width*=itemRatio;
-          for(const piece of item.pieces)piece.run=fitSymbol
-            ? {...piece.run,fontSizeScale:(piece.run.fontSizeScale ?? 1)*ratio}
-            : {...piece.run,totalAdvance:piece.run.totalAdvance*itemRatio,
-              glyphs:piece.run.glyphs.map(glyph=>({...glyph,xAdvance:glyph.xAdvance*itemRatio}))};
+        // Native source lines whose runs all use the Arabic face distribute
+        // the fit residual through word spaces (ADR-020 stretch zones). Where
+        // the spacing mode is unknown, keep uniform fitting: the reference
+        // fixture shows it tracks the source glyph metrics more closely than
+        // blind zone redistribution.
+        const hasKashidaCarrier=items.some(item=>item.pieces.some(piece=>
+          piece.run.glyphs.some(glyph=>!!glyph.kashida)));
+        const useSpaceFit=baseDirection==="rtl" && items.every(item=>!!item.style.arabicFontName) &&
+          (wordSpaces.length>0 || hasKashidaCarrier) && spaceWidth+residual>=-0.001;
+        if(useSpaceFit) {
+          distributeResidual(items,residual,backend);
+        } else if(contentWidth>0) {
+          const ratio=columnWidth/contentWidth;
+          // A standalone symbol's saved extent is its font cell measurement;
+          // fit the symbol itself when the host face differs metrically.
+          const fitSymbol=items.length===1 && items[0]!.style.latinFontName==="Symbol" &&
+            items[0]!.pieces.reduce((sum,piece)=>sum+piece.run.glyphs.length,0)===1;
+          fitUniformRatio(items,ratio,fitSymbol);
         }
         contentWidth=columnWidth;
       }
@@ -298,4 +312,182 @@ export function drawStyledStory(story: Story, object: PageObject, backend: PdfBa
     }
     if(!saved)usedHeight+=baseStyle.paragraphAfter ?? 0;
   }
+}
+
+function isGlue(item: Token): boolean {
+  return /^\s+$/.test(item.text);
+}
+
+/** Points contributed by one font unit, including appearance horizontal scale. */
+function piecePointScale(piece: Piece): number {
+  return piece.style.fontSize * (piece.run.fontSizeScale ?? 1) * (piece.style.horizontalScale ?? 1) / piece.run.unitsPerEm;
+}
+
+function recomputeItemWidth(item: Token, backend: PdfBackend): void {
+  item.width = item.pieces.reduce(
+    (sum, piece) => sum + backend.measureShapedRun(piece.run, piece.style.fontSize) * (piece.style.horizontalScale ?? 1),
+    0,
+  );
+}
+
+function sumGlyphs(items: readonly Token[]): number {
+  return items.reduce((sum, item) => sum + item.pieces.reduce((pSum, piece) => pSum + piece.run.glyphs.length, 0), 0);
+}
+
+/**
+ * Give a residual width to word-space glue. The residual is shared in
+ * proportion to each glue run's natural width (equivalent to the native
+ * per-space spacing); negative residuals may shrink glue to zero but never
+ * past it.
+ */
+function applyGlueStretch(glue: readonly Token[], points: number, backend: PdfBackend): number {
+  if (!glue.length) return points;
+  const glueWidth = glue.reduce((sum, item) => sum + item.width, 0);
+  const applied = points < 0 ? Math.max(points, -glueWidth) : points;
+  for (const item of glue) {
+    // Preserve the relative widths the source font assigned to each glue run;
+    // equal-per-unit would distort mixed-width spaces.
+    const itemShare = glueWidth > 0
+      ? applied * (item.width / glueWidth)
+      : applied / glue.length;
+    const glyphTotal = item.pieces.reduce(
+      (sum, piece) => sum + piece.run.glyphs.reduce((glyphSum, glyph) => glyphSum + Math.abs(glyph.xAdvance), 0),
+      0,
+    );
+    for (const piece of item.pieces) {
+      const scale = piecePointScale(piece);
+      if (!scale) continue;
+      const glyphs = piece.run.glyphs;
+      const pieceTotal = glyphs.reduce((sum, glyph) => sum + Math.abs(glyph.xAdvance), 0);
+      const pieceShare = glyphTotal > 0
+        ? itemShare * (pieceTotal / glyphTotal)
+        : itemShare / item.pieces.length;
+      piece.run = {...piece.run, glyphs: glyphs.map((glyph) => {
+        const glyphShare = pieceTotal > 0
+          ? pieceShare * (Math.abs(glyph.xAdvance) / pieceTotal)
+          : pieceShare / glyphs.length;
+        return {...glyph, xAdvance: glyph.xAdvance + glyphShare / scale};
+      })};
+      piece.run.totalAdvance = piece.run.glyphs.reduce((sum, glyph) => sum + glyph.xAdvance, 0);
+    }
+    recomputeItemWidth(item, backend);
+  }
+  return points - applied;
+}
+
+function stretchGlue(items: readonly Token[], points: number, backend: PdfBackend): number {
+  return applyGlueStretch(items.filter(isGlue), points, backend);
+}
+
+/**
+ * Continue a residual on kashida carriers as a fractional advance, weighted by
+ * the native kashida weight. This avoids scaling ordinary letters and does not
+ * re-insert glyphs that were already distributed.
+ */
+function stretchKashida(items: readonly Token[], points: number, backend: PdfBackend): number {
+  const carriers: {piece: Piece; index: number; weight: number}[] = [];
+  for (const item of items) {
+    for (const piece of item.pieces) {
+      piece.run.glyphs.forEach((glyph, index) => {
+        if (glyph.kashida) carriers.push({piece, index, weight: glyph.kashida.weight || 1});
+      });
+    }
+  }
+  if (!carriers.length) return points;
+  const totalWeight = carriers.reduce((sum, carrier) => sum + carrier.weight, 0);
+  const perWeight = points / totalWeight;
+  const deltas = new Map<Piece, Map<number, number>>();
+  for (const carrier of carriers) {
+    const map = deltas.get(carrier.piece) ?? new Map<number, number>();
+    map.set(carrier.index, (map.get(carrier.index) ?? 0) + perWeight * carrier.weight);
+    deltas.set(carrier.piece, map);
+  }
+  for (const item of items) {
+    let touched = false;
+    for (const piece of item.pieces) {
+      const map = deltas.get(piece);
+      if (!map) continue;
+      touched = true;
+      const scale = piecePointScale(piece);
+      if (!scale) continue;
+      piece.run = {...piece.run, glyphs: piece.run.glyphs.map((glyph, index) => {
+        const delta = map.get(index);
+        return delta === undefined ? glyph : {...glyph, xAdvance: glyph.xAdvance + delta / scale};
+      })};
+      piece.run.totalAdvance = piece.run.glyphs.reduce((sum, glyph) => sum + glyph.xAdvance, 0);
+    }
+    if (touched) recomputeItemWidth(item, backend);
+  }
+  return 0;
+}
+
+/**
+ * Last-resort residual: distribute proportionally to every glyph advance so
+ * relative advances are preserved when no words or kashidas can absorb it.
+ */
+function stretchTracking(items: readonly Token[], points: number, backend: PdfBackend): number {
+  const total = sumGlyphs(items);
+  if (!total) return points;
+  const totalAdvance = items.reduce(
+    (sum, item) => sum + item.pieces.reduce(
+      (pieceSum, piece) => pieceSum + piece.run.glyphs.reduce((glyphSum, glyph) => glyphSum + glyph.xAdvance, 0),
+      0,
+    ),
+    0,
+  );
+  for (const item of items) {
+    for (const piece of item.pieces) {
+      const scale = piecePointScale(piece);
+      if (!scale) continue;
+      const glyphs = piece.run.glyphs;
+      piece.run = {...piece.run, glyphs: glyphs.map((glyph) => {
+        // Proportional tracking keeps the native relative advances intact;
+        // equal gaps would distort lines with strongly varying glyph widths.
+        const share = totalAdvance !== 0 ? glyph.xAdvance / totalAdvance : 1 / total;
+        return {...glyph, xAdvance: glyph.xAdvance + (points * share) / scale};
+      })};
+      piece.run.totalAdvance = piece.run.glyphs.reduce((sum, glyph) => sum + glyph.xAdvance, 0);
+    }
+    recomputeItemWidth(item, backend);
+  }
+  return 0;
+}
+
+/**
+ * A standalone symbol's saved extent is its font cell measurement, so fit the
+ * symbol itself. Restricting this to Symbol avoids scaling real glyph outlines
+ * just because a run happens to contain one glyph.
+ */
+function stretchCell(items: readonly Token[], points: number, backend: PdfBackend): number {
+  const item = items[0];
+  if (!item || items.length !== 1 || item.style.latinFontName !== "Symbol") return points;
+  if (sumGlyphs(items) !== 1 || !item.width) return points;
+  const factor = (item.width + points) / item.width;
+  for (const piece of item.pieces) {
+    piece.run = {...piece.run, fontSizeScale: (piece.run.fontSizeScale ?? 1) * factor};
+  }
+  recomputeItemWidth(item, backend);
+  return 0;
+}
+
+/** Uniform fallback: scale every advance to the saved extent. */
+function fitUniformRatio(items: readonly Token[], ratio: number, fitSymbol: boolean): void {
+  for (const item of items) {
+    item.width *= ratio;
+    for (const piece of item.pieces) {
+      piece.run = fitSymbol
+        ? {...piece.run, fontSizeScale: (piece.run.fontSizeScale ?? 1) * ratio}
+        : {...piece.run, totalAdvance: piece.run.totalAdvance * ratio,
+          glyphs: piece.run.glyphs.map((glyph) => ({...glyph, xAdvance: glyph.xAdvance * ratio}))};
+    }
+  }
+}
+
+function distributeResidual(items: readonly Token[], residual: number, backend: PdfBackend): void {
+  if (!Number.isFinite(residual) || Math.abs(residual) < 1e-6) return;
+  let remaining = residual;
+  if (items.some(isGlue)) remaining = stretchGlue(items, remaining, backend);
+  if (Math.abs(remaining) >= 1e-6) remaining = stretchKashida(items, remaining, backend);
+  if (Math.abs(remaining) >= 1e-6) remaining = stretchTracking(items, remaining, backend);
+  if (Math.abs(remaining) >= 1e-6) stretchCell(items, remaining, backend);
 }

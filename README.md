@@ -77,18 +77,28 @@ npm test                       # fast unit and integration suite
 npm run test:references        # verify all supplied INP/PDF reference pairs
 npm run test:visual            # gated SAMPLE2 >= 90% ink-overlap check
 npm run test:vector            # gated per-outline vector match baseline
+npm run test:spacing           # advisory p95 per-glyph/gap spacing gate (ADR-020)
 npm run audit:references       # metadata, searchable-text, and raster report
 npm run visual:diff -- --case "A3 sample" --inpage-fonts fonts/inpage-local
 npm run vector:diff -- --case "A3 sample" --inpage-fonts fonts/inpage-local
+npm run spacing:diff -- --case "A3 sample" --inpage-fonts fonts/inpage-local
+npm run spacing:priors -- --case "A3 sample"
+npm run spacing:calibrate -- --manifest --font-name "Noori Nastaliq" --fonts-dir fonts/inpage-local --dpi 300
+npm run spacing:rasterize -- --dir tmp/reverse-engineering/spacing-probes --dpi 300
+npm run spacing:calibrate -- --oracle tmp/reverse-engineering/spacing-probes/spacing-oracle.json
 npm run nooric:oracle -- --manifest tmp/oracle/manifest.json
 ```
 
 The reference audit and visual diff write generated PDFs, rasters, and a
 three-panel diff PNG (reference | generated | diff) under `tmp/pdfs/`. The
-vector diff writes per-page SVGs and a JSON report. Poppler (`pdftoppm`,
+vector diff writes per-page SVGs and a JSON report. The spacing diff writes
+per-page SVGs, a word-gap histogram/1-D lag report, and a per-line lag PNG
+under `tmp/pdfs/spacing-diff/`. `spacing:calibrate` writes
+`fonts/inpage-local/spacing-calibration.json` when present; the renderer loads
+it automatically and identity defaults keep output unchanged when it is absent. Poppler (`pdftoppm`,
 `pdftocairo`, `pdftotext`, `pdfinfo`) must be available; the diff tools also
 locate a winget Poppler install automatically. The oracle manifest points at
-rasters produced by the manual Wine workflow; the tool never launches the
+rasters produced by the manual native-InPage export workflow (no Wine); the tool never launches the
 vendor executable. See [tests/README.md](./tests/README.md), ADR-018, and
 ADR-019.
 

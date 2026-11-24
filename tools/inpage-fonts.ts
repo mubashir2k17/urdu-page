@@ -3,7 +3,7 @@ import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, writeFi
 import { join } from "node:path";
 import fontkit from "@pdf-lib/fontkit";
 import { decodeInPageFontData, readInPageBankMetrics, readInPageIsolatedGlyph, HarfBuzzTextShaper, LegacyLigatureTextShaper, NooricTextShaper, type LegacyLigatureGlyph, type NooricClassTables, type NooricRecord, type ShapeFont, type TextShaper } from "@inpage/text-shaper";
-import type { RenderTypography } from "@inpage/pdf-renderer";
+import type { RenderTypography, SpacingCalibration } from "@inpage/pdf-renderer";
 import { CHAR_MAP_URDU } from "../packages/inp-parser/src/charmap.js";
 import { loadArabicFontFamilies } from "./inpage-arabic-fonts.js";
 import { extractNooricTables } from "./nooric-table.js";
@@ -296,6 +296,16 @@ export function loadInPageTypography(directory:string,options:InPageTypographyOp
   const unicodeShaper=new HarfBuzzTextShaper();
   const pashtoFallbackFont=arabic.names.get("Trad Arabic");
   const pashtoFallbackShaper=pashtoFallbackFont?arabic.shapers.get(pashtoFallbackFont.id):undefined;
+  const calibrationPath=join(directory,"spacing-calibration.json");
+  let spacingCalibration:SpacingCalibration|undefined;
+  if(existsSync(calibrationPath)){
+    try {
+      const parsed=JSON.parse(readFileSync(calibrationPath,"utf8")) as SpacingCalibration;
+      if(parsed && typeof parsed==="object") spacingCalibration=parsed;
+    } catch(error) {
+      console.warn(`Ignoring invalid spacing calibration: ${(error as Error).message}`);
+    }
+  }
   const enableNooric=options.nooric === true;
   const nooric=enableNooric && pashtoFallbackFont && pashtoFallbackShaper
     ? loadNooricTypography(directory,{shape(input) {
@@ -320,6 +330,7 @@ export function loadInPageTypography(directory:string,options:InPageTypographyOp
     }},
     fonts: [...fonts.filter(({ id }) => usedFonts.has(id)), ...latinFonts, ...arabic.fonts,
       ...(nooric?.faces ?? []),...(symbol?[symbol]:[])],
+    ...(spacingCalibration?{spacingCalibration}:{}),
     resolveFont(style,direction,legacyRunKind) {
       if(direction==="ltr" && style.latinFontName==="Symbol")return symbol;
       // The native contextual route (FUN_00413c50) is shared by these kinds;

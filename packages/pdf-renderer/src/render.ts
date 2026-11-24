@@ -11,6 +11,7 @@ import { PdfLibBackend } from "./pdflib-backend.js";
 import { resolveProvidedFont } from "./font-provider.js";
 import type { PdfBackend } from "./backend.js";
 import { renderPositionedPage } from "./positioned-layout.js";
+import type { SpacingCalibration, SpacingPriors } from "./spacing-calibration.js";
 
 export const A4_WIDTH = DEFAULT_PAGE_WIDTH;
 export const A4_HEIGHT = DEFAULT_PAGE_HEIGHT;
@@ -32,6 +33,10 @@ export interface RenderTypography {
   /** Additional fonts referenced by glyph fontId overrides. */
   fonts: ShapeFont[];
   resolveFont?: (style: TextStyle, direction: "ltr" | "rtl", legacyRunKind?: number) => ShapeFont | undefined;
+  /** Per-font metric corrections measured from the native oracle (ADR-020). */
+  spacingCalibration?: SpacingCalibration;
+  /** Offline Tc/Tw priors used when a run has no decoded spacing. */
+  spacingPriors?: SpacingPriors;
 }
 
 /** A simple built-in fallback font loader (reads from the filesystem in Node). */
@@ -107,7 +112,10 @@ export async function renderPdf(
 
   if (options.preserveLayout && document.pageObjects.length > 0 && document.stories.length > 0) {
     addPage();
-    await renderPositionedPage(document, backend, pageHeight, shape);
+    await renderPositionedPage(document, backend, pageHeight, shape, {
+      ...(typography?.spacingCalibration ? {calibration: typography.spacingCalibration} : {}),
+      ...(typography?.spacingPriors ? {priors: typography.spacingPriors} : {}),
+    });
     const bytes = await backend.save();
     return { bytes, pageCount: emittedPageCount };
   }

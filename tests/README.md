@@ -21,6 +21,12 @@ npm run test:visual
 npm run visual:diff -- --case "A3 sample" --inpage-fonts fonts/inpage-local
 npm run test:vector
 npm run vector:diff -- --case "A3 sample" --inpage-fonts fonts/inpage-local
+npm run test:spacing
+npm run spacing:diff -- --case "A3 sample" --inpage-fonts fonts/inpage-local
+npm run spacing:priors -- --case "A3 sample"
+npm run spacing:calibrate -- --manifest --font-name "Noori Nastaliq" --fonts-dir fonts/inpage-local --dpi 300
+npm run spacing:rasterize -- --dir tmp/reverse-engineering/spacing-probes --dpi 300
+npm run spacing:calibrate -- --oracle tmp/reverse-engineering/spacing-probes/spacing-oracle.json
 npm run nooric:oracle -- --manifest tmp/oracle/manifest.json
 ```
 
@@ -46,5 +52,7 @@ measured during development. Strict mode exits non-zero unless page count and
 size match and every sampled non-blank page reaches 98% ink overlap.
 
 Poppler's `pdfinfo`, `pdftotext`, `pdftoppm`, and `pdftocairo` commands must be
-available for the audit and visual/vector diff commands. The fast Vitest suite
-does not depend on Poppler.
+available for the audit, visual/vector diff, and spacing diff commands. The
+spacing gate is advisory unless `SPACING_ENFORCE=1` is set, and the fast
+`tests/spacing-fidelity.test.ts` micro-corpus runs without Poppler. The fast
+Vitest suite does not depend on Poppler.

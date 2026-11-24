@@ -2,7 +2,7 @@
 // documents and writes advances suitable for fitting/validating the shaper.
 //
 // The vendor executable is never launched by this tool. Produce the oracle
-// rasters separately (Wine + InPage export, or the equivalent controlled
+// rasters separately (native InPage export or equivalent controlled
 // documents), then point a manifest at them:
 //
 //   npm run nooric:oracle -- --manifest tmp/oracle/manifest.json
@@ -20,6 +20,7 @@ import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 import { measureGlyphAdvances, parsePgm } from "./oracle-measure.js";
+import type { OracleSpacingProbe } from "./spacing-calibration.js";
 
 interface OracleSample {
   name: string;
@@ -29,6 +30,8 @@ interface OracleSample {
   minGap?: number;
   yMin?: number;
   yMax?: number;
+  /** Optional single-variable spacing probe metadata for calibration fitting. */
+  probe?: OracleSpacingProbe;
 }
 
 interface OracleManifest {
@@ -65,6 +68,7 @@ const samples = manifest.samples.map((sample) => {
     name: sample.name,
     image: sample.image,
     expectedGlyphs: sample.expectedGlyphs ?? measurements.intervals.length,
+    ...(sample.probe ? {probe: sample.probe} : {}),
     ...measurements,
   };
 });

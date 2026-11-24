@@ -183,5 +183,5 @@ including three optional local-asset tests, plus root typecheck.
 2. Follow the position table consumers to recover inter-ligature kerning and
    any document-level overrides of the observed spacing defaults.
 3. Link source run sizes/font identities and page fills to the renderer.
-4. Use Wine for controlled one-property document/export experiments if static
+4. Use the native Windows install for controlled one-property document/export experiments if static
    evidence cannot distinguish the remaining fields.

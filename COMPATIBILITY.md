@@ -37,7 +37,7 @@ visual-diff tests demonstrate it.
 | Footnotes, indexes | ❌ Not implemented | Phase 2 |
 | Searchable PDF text | ✅ Working | Logical Unicode is stored as `ActualText`; text is extractable via `pdftotext` |
 | Font embedding | ✅ Working | Identity CID-to-glyph mapping with full embedding; pdf-lib/fontkit does not reshape text |
-| Golden visual-diff | ⚠️ Harness working | Four supplied PDF pairs are audited; the gated visual test asserts SAMPLE2 ≥ 90% and currently fails at 81.62% (local-font profile) |
+| Golden visual-diff | ⚠️ Harness working | Four supplied PDF pairs are audited; the gated visual test asserts SAMPLE2 ≥ 90% and currently fails at 88.47% (local-font profile) |
 
 ## Reference audit baseline
 
@@ -50,7 +50,7 @@ Pass `-- --case sample` to run only the matching reference case.
 | Reference | Generated/reference pages | First-page size | Sampled ink overlap |
 |---|---:|---:|---:|
 | Font catalogue | 2 / 2 | Match (A4) | 2.1% |
-| A3 sample | 1 / 1 | Match (A3 output; source composition remains A4) | 48.0% default; 81.62% with local fonts |
+| A3 sample | 1 / 1 | Match (A3 output; source composition remains A4) | 48.0% default; 88.47% with local fonts |
 | Book body | 276 / 241 | Match (Letter) | 9.0% |
 | Book table of contents | 18 / 12 | Match (Letter) | 1.3% |
 

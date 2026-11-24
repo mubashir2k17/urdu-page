@@ -207,7 +207,7 @@ it against real exports.
 
 ### Oracle corpus workflow
 
-The vendor application is a manual dev-only input (Wine or a Windows install).
+The vendor application is a manual dev-only input (native Windows install).
 For each controlled document:
 
 1. Export to PDF from InPage, then rasterise one page:
@@ -274,5 +274,5 @@ were produced by it.
    non-Noori-character cached kinds (DAT `+4`/`+6`/`+8`/`+12`/`+16` forms and
    the runtime face at raw code `0xe4`). This is the largest remaining raster
    gap on SAMPLE2.
-5. Oracle corpus: run controlled single-property documents under Wine and use
+5. Oracle corpus: author controlled single-property documents in InPage and use
    the measurements to confirm the font-derived advance rows and mark offsets.

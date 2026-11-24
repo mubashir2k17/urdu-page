@@ -22,7 +22,7 @@ describe("saved source layout",()=>{
     expect(draw.mock.calls.find(call=>call[0].logicalText==="ب")![1]).toBe(60);
     expect(draw.mock.calls.filter(call=>call[0].logicalText.trim()).map(call=>call[0].totalAdvance)).toEqual([500,500]);
   });
-  it("keeps Latin letter spacing distinct from Noori word-space fitting",()=>{
+  it("keeps Latin letter spacing distinct from Arabic word-space fitting",()=>{
     const draw=vi.fn<PdfBackend["drawShapedRun"]>();
     const backend:PdfBackend={addPage(){},measureShapedRun:(run,size)=>run.totalAdvance*size/run.unitsPerEm,
       drawShapedRun:draw,async drawImage(){},drawLine(){},drawRectangle(){},async save(){return new Uint8Array();}};
@@ -34,6 +34,8 @@ describe("saved source layout",()=>{
       unitsPerEm:1000,totalAdvance:500*text.length,missingGlyphCount:0,
       glyphs:[...text].map((_,cluster)=>({id:1,cluster,xAdvance:500,yAdvance:0,xOffset:0,yOffset:0}))});
     drawStyledStory(story,object,backend,shape,200);
+    // Non-Arabic runs keep the uniform fallback; stretch zones apply to
+    // all-Arabic RTL lines where the native spacing mode is known.
     expect(draw.mock.calls.find(call=>call[0].logicalText==="B")![1]).toBe(50);
   });
   it("retains trailing spaces and separate character/space tracking in a rotated saved run",()=>{

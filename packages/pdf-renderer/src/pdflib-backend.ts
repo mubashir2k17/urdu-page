@@ -43,13 +43,25 @@ import fontkit, {type Font} from "@pdf-lib/fontkit";
 import {glyphOutline} from "./glyph-outline.js";
 import type { PdfBackend, TextAppearance } from "./backend.js";
 import { dibToPng } from "./dib-to-png.js";
+import { advanceRun, stepGlyph } from "./pen-model.js";
 
 
 
 /** Native 600 dpi printer grid (72/600 pt per step). */
 const DEVICE_STEP_POINTS = 72 / 600;
+/**
+ * ADR-020 proposed replacing this floor with unbiased rounding. Measured
+ * against the reference raster (36 dpi ink overlap) rounding regressed the
+ * visual gate by ~1.3 points, so the native output is reproducibly floored.
+ * The hypothesis is recorded as falsified rather than adopted.
+ */
 function snapToDevice(value: number): number {
   return Math.floor(value / DEVICE_STEP_POINTS + 1e-9) * DEVICE_STEP_POINTS;
+}
+
+/** Quantize to the glyph-origin grid, returning the snapped value. */
+function snapToGrid(value: number, step: number): number {
+  return Math.floor(value / step + 1e-7) * step;
 }
 
 /** Options for {@link computeGraphicBoundary}. */
@@ -264,7 +276,7 @@ export class PdfLibBackend implements PdfBackend {
   }
 
   measureShapedRun(run: ShapedRun, size: number): number {
-    return run.totalAdvance * (size / run.unitsPerEm) * (run.fontSizeScale ?? 1);
+    return advanceRun(run, size);
   }
 
   drawShapedRun(run: ShapedRun, x: number, y: number, size: number, rotationDegrees = 0, appearance:TextAppearance = {}): void {
@@ -300,8 +312,7 @@ export class PdfLibBackend implements PdfBackend {
     const radians = (rotationDegrees * Math.PI) / 180;
     const cosine = Math.cos(radians);
     const sine = Math.sin(radians);
-    let penX = 0;
-    let penY = 0;
+    let pen = {x: 0, y: 0};
     const actualText = PDFHexString.fromText(run.logicalText);
 
     this.currentPage.pushOperators(
@@ -331,6 +342,10 @@ export class PdfLibBackend implements PdfBackend {
         this.currentPage.pushOperators(setFontAndSize(key, paintedSize));
         activeFontId = glyphFontId;
       }
+      const {origin, next} = stepGlyph(glyph, pen, scale, horizontalScale);
+      const pageX = x + origin.x * cosine - origin.y * sine;
+      const pageY = y + origin.x * sine + origin.y * cosine;
+      const [originX, originY] = this.glyphPosition(pageX, pageY);
       this.currentPage.pushOperators(
         setTextRenderingMode(appearance.outline || this.vectorFonts.has(glyphFontId) ? TextRenderingMode.Invisible : TextRenderingMode.Fill),
         setTextMatrix(
@@ -338,34 +353,32 @@ export class PdfLibBackend implements PdfBackend {
           sine * horizontalScale,
           -sine,
           cosine,
-          ...this.glyphPosition(
-            x + (penX + glyph.xOffset * scale) * horizontalScale * cosine - (penY + glyph.yOffset * scale) * sine,
-            y + (penX + glyph.xOffset * scale) * horizontalScale * sine + (penY + glyph.yOffset * scale) * cosine,
-          ),
+          originX,
+          originY,
         ),
         showText(PDFHexString.of(this.vectorFonts.has(glyphFontId) ? "00" : glyph.id.toString(16).padStart(4, "0"))),
       );
-      penX += glyph.xAdvance * scale;
-      penY += glyph.yAdvance * scale;
+      pen = next;
     }
 
     this.currentPage.pushOperators(endText());
     if(appearance.outline || run.glyphs.some(glyph=>this.vectorFonts.has(glyph.fontId ?? run.fontId))) {
       this.currentPage.pushOperators(setLineCap(LineCapStyle.Round),setLineJoin(LineJoinStyle.Round));
-      penX=0;penY=0;
+      pen={x:0,y:0};
       for(const glyph of run.glyphs) {
+        const {origin,next}=stepGlyph(glyph,pen,scale,horizontalScale);
         const id=glyph.fontId ?? run.fontId;
-        if(!appearance.outline && !this.vectorFonts.has(id)) {penX+=glyph.xAdvance*scale;penY+=glyph.yAdvance*scale;continue;}
+        if(!appearance.outline && !this.vectorFonts.has(id)) {pen=next;continue;}
         let face=this.outlineFonts.get(id);
         if(!face){face=fontkit.create(this.fontBytes.get(id)!);this.outlineFonts.set(id,face);}
         const glyphScale=paintedSize/face.unitsPerEm;
         const transform=(a:number,b:number):[number,number]=>{
-          const localX=(penX+glyph.xOffset*scale+a*glyphScale)*horizontalScale;
-          const localY=penY+glyph.yOffset*scale+b*glyphScale;
+          const localX=origin.x+a*glyphScale*horizontalScale;
+          const localY=origin.y+b*glyphScale;
           return [x+localX*cosine-localY*sine,y+localX*sine+localY*cosine];
         };
         this.currentPage.pushOperators(...glyphOutline(face.getGlyph(glyph.id).path,transform),appearance.outline ? stroke() : fill());
-        penX+=glyph.xAdvance*scale;penY+=glyph.yAdvance*scale;
+        pen=next;
       }
     }
     this.currentPage.pushOperators(endMarkedContent(),popGraphicsState());
@@ -375,7 +388,8 @@ export class PdfLibBackend implements PdfBackend {
     if(!this.glyphPositionDpi)return [x,y];
     const step=72/this.glyphPositionDpi, height=this.currentPage!.getHeight();
     // GDI places text in integer printer coordinates with a top-left origin.
-    return [Math.floor(x/step+1e-7)*step,height-Math.floor((height-y)/step+1e-7)*step];
+    // The reference raster matches floor, not round (see snapToDevice).
+    return [snapToGrid(x,step),height-snapToGrid(height-y,step)];
   }
 
   async drawImage(

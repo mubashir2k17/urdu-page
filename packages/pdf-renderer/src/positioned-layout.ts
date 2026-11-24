@@ -2,6 +2,7 @@ import type { InPageDocument, Story, TextStyle } from "@inpage/document-model";
 import type { ShapedRun } from "@inpage/text-shaper";
 import type { PdfBackend } from "./backend.js";
 import { drawStyledStory } from "./styled-layout.js";
+import type { SpacingOptions } from "./spacing-calibration.js";
 
 type Direction = "ltr" | "rtl";
 
@@ -11,6 +12,7 @@ export async function renderPositionedPage(
   outputHeight: number,
   shape: (text: string, direction: Direction, style?: TextStyle,
     codes?: readonly (number | undefined)[], legacyRunKind?: number) => ShapedRun,
+  spacing: SpacingOptions = {},
 ): Promise<void> {
   const storyByReference = associateStoriesWithReferences(document);
   const imageByName = new Map(document.images.map((image) => [image.name.toLowerCase(), image]));
@@ -46,7 +48,7 @@ export async function renderPositionedPage(
     if (!story) continue;
 
     if (story.paragraphs.some(paragraph => paragraph.runs.some(run => run.style))) {
-      drawStyledStory(story, object, backend, shape, outputHeight);
+      drawStyledStory(story, object, backend, shape, outputHeight, undefined, spacing);
       continue;
     }
 
@@ -149,19 +151,34 @@ function drawStory(
   }
 }
 
+/**
+ * Split into words and exact glue runs (`"  "`, `"\t"`, …). Collapsing glue
+ * before shaping loses multiple spaces and tab widths.
+ */
+function tokenizeGlue(text: string): string[] {
+  return text.match(/\s+|[^\s]+/g) ?? [];
+}
+
+function isGlue(token: string): boolean {
+  return /^\s+$/.test(token);
+}
+
+function tokenDirection(token: string, base: Direction): Direction {
+  if (isGlue(token)) return base;
+  return textDirection(token);
+}
+
 function measureBidirectional(
   text: string,
   backend: PdfBackend,
   shape: (text: string, direction: Direction) => ShapedRun,
   size: number,
 ): number {
-  const tokens = text.split(/\s+/).filter(Boolean);
-  const space = backend.measureShapedRun(shape(" ", "ltr"), size);
-  return tokens.reduce(
-    (total, token, index) =>
-      total + backend.measureShapedRun(shape(token, textDirection(token)), size) + (index ? space : 0),
-    0,
-  );
+  let total = 0;
+  for (const token of tokenizeGlue(text)) {
+    total += backend.measureShapedRun(shape(token, tokenDirection(token, "ltr")), size);
+  }
+  return total;
 }
 
 function drawBidirectionalLine(
@@ -173,19 +190,15 @@ function drawBidirectionalLine(
   y: number,
   size: number,
 ): void {
-  const tokens = text.split(/\s+/).filter(Boolean);
-  const space = backend.measureShapedRun(shape(" ", "ltr"), size);
   let pen = baseDirection === "rtl" ? x + measureBidirectional(text, backend, shape, size) : x;
-  for (const [index, token] of tokens.entries()) {
-    const run = shape(token, textDirection(token));
+  for (const token of tokenizeGlue(text)) {
+    const run = shape(token, tokenDirection(token, baseDirection));
     const width = backend.measureShapedRun(run, size);
     if (baseDirection === "rtl") {
-      if (index) pen -= space;
       pen -= width;
-      backend.drawShapedRun(run, pen, y, size);
+      if (!isGlue(token)) backend.drawShapedRun(run, pen, y, size);
     } else {
-      if (index) pen += space;
-      backend.drawShapedRun(run, pen, y, size);
+      if (!isGlue(token)) backend.drawShapedRun(run, pen, y, size);
       pen += width;
     }
   }
@@ -198,20 +211,26 @@ function cleanFrameText(text: string): string {
 }
 
 function wrap(text: string, maxWidth: number, measure: (text: string) => number): string[] {
-  const words = text.split(/\s+/).filter(Boolean);
-  if (words.length === 0) return [];
+  const tokens = tokenizeGlue(text);
+  if (tokens.length === 0) return [];
   const lines: string[] = [];
   let line = "";
-  for (const word of words) {
-    const candidate = line ? `${line} ${word}` : word;
-    if (line && measure(candidate) > maxWidth) {
-      lines.push(line);
-      line = word;
+  for (const token of tokens) {
+    if (isGlue(token)) {
+      if (line) line += token;
+      continue;
+    }
+    if (!line) {
+      line = token;
+    } else if (measure(line + token) > maxWidth) {
+      lines.push(line.replace(/\s+$/, ""));
+      line = token;
     } else {
-      line = candidate;
+      line += token;
     }
   }
-  if (line) lines.push(line);
+  const trailing = line.replace(/\s+$/, "");
+  if (trailing) lines.push(trailing);
   return lines;
 }
 

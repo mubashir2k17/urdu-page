@@ -19,7 +19,7 @@ import { REFERENCE_CASES } from "../tests/reference-manifest.js";
 import { loadInPageTypography } from "./inpage-fonts.js";
 import { encodePng } from "./png.js";
 
-interface GrayImage {
+export interface GrayImage {
   width: number;
   height: number;
   pixels: Uint8Array;
@@ -50,7 +50,7 @@ interface DiffOptions {
   nooric?: boolean;
 }
 
-function readPgm(path: string): GrayImage {
+export function readPgm(path: string): GrayImage {
   const bytes = readFileSync(path);
   let offset = 0;
   function token(): string {
@@ -90,7 +90,7 @@ function resizeNearest(source: GrayImage, width: number, height: number): GrayIm
   return { width, height, pixels };
 }
 
-function findPoppler(name: string): string {
+export function findPoppler(name: string): string {
   const executable = process.platform === "win32" ? `${name}.exe` : name;
   const explicit = process.env.POPPLER_BIN;
   if (explicit) {
@@ -117,7 +117,7 @@ function renderGray(pdf: string, page: number, prefix: string, dpi: number): voi
   ]);
 }
 
-function slug(value: string): string {
+export function slug(value: string): string {
   return value.replace(/[^a-z0-9]+/gi, "-").replace(/^-+|-+$/g, "").toLowerCase();
 }
 

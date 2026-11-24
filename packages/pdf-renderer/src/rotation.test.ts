@@ -21,6 +21,8 @@ describe("rotated glyph placement", () => {
     for(const [i,grid] of matrices[1]!.entries()) {
       const precise=matrices[0]![i]!;
       expect(grid.slice(0,4)).toEqual(precise.slice(0,4));
+      // ADR-020 tested rounding here; the reference raster matches floor, so
+      // the native printer grid is retained.
       expect(grid[4]).toBeCloseTo(Math.floor(precise[4]!/.12)*.12,7);
       expect(grid[5]).toBeCloseTo(300-Math.floor((300-precise[5]!)/.12)*.12,7);
     }
